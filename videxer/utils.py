@@ -77,7 +77,7 @@ def collect_media_items(root: Path, generate_thumbnails: bool = False) -> List[D
     # Handle flat files in root directory
     if structure in [MediaStructure.FLAT, MediaStructure.MIXED]:
         for entry in sorted(root.iterdir()):
-            if entry.is_file() and entry.suffix.lower() in ALL_MEDIA_EXTS:
+            if entry.is_file() and entry.suffix.lower() in ALL_MEDIA_EXTS and not _is_thumbnail_file(entry.name):
                 item = _create_file_item(entry, root, generate_thumbnails)
                 if item:
                     items.append(item)
@@ -120,7 +120,7 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
         if generate_thumbnails and file_path.suffix.lower() in VIDEO_EXTS:
             thumb_filename = f"{file_path.stem}_thumb.jpg"
             thumb_path = file_path.parent / thumb_filename
-            if generate_video_thumbnail(file_path, thumb_path):
+            if thumb_path.exists() or generate_video_thumbnail(file_path, thumb_path):
                 item["thumbs"] = [thumb_filename]
                 item["thumb_best"] = thumb_filename
 
@@ -145,7 +145,7 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
 
     for entry in sorted(dir_path.iterdir()):
         if entry.is_file():
-            if entry.suffix.lower() in ALL_MEDIA_EXTS:
+            if entry.suffix.lower() in ALL_MEDIA_EXTS and not _is_thumbnail_file(entry.name):
                 media_files.append(entry)
             elif entry.name in ["metadata.json", "analytics.json"]:
                 metadata_files[entry.name] = entry
@@ -189,8 +189,9 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
             # Generate thumbnail if none exist and it's a video file
             thumb_path = dir_path / "thumb_01.jpg"
             if generate_video_thumbnail(primary_file, thumb_path):
-                item["thumbs"] = ["thumb_01.jpg"]
-                item["thumb_best"] = "thumb_01.jpg"
+                thumb_rel = str(thumb_path.relative_to(root))
+                item["thumbs"] = [thumb_rel]
+                item["thumb_best"] = thumb_rel
 
         # Add video field for backwards compatibility
         if primary_file.suffix.lower() in {".mp4", ".mov", ".mkv", ".m4v", ".webm", ".avi", ".wmv", ".flv"}:
@@ -220,6 +221,12 @@ def _determine_media_type(extension: str) -> str:
         return "image"
     else:
         return "unknown"
+
+
+def _is_thumbnail_file(filename: str) -> bool:
+    """Check if a file is a thumbnail based on its name."""
+    name = filename.lower()
+    return name.startswith("thumb_") or "_thumb" in name or name.endswith("_thumb.jpg") or name.endswith("_thumb.jpeg") or name.endswith("_thumb.png") or name.endswith("_thumb.webp")
 
 
 def _thumb_sort_key(filename: str) -> int:

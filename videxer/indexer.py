@@ -95,6 +95,12 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
                 "path": item["path"],
                 "primary_media": item["path"],
             })
+
+            # Add optional fields for files
+            if "thumbs" in item:
+                processed_item["thumbs"] = item["thumbs"]
+            if "thumb_best" in item:
+                processed_item["thumb_best"] = item["thumb_best"]
         else:
             processed_item.update({
                 "dir": item["dir"],
