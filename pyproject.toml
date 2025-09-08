@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "web-media-library"
+name = "videxer"
 version = "0.1.0"
 description = "Static media library generator that creates index.html and JSON files for viewing video collections."
 authors = [{name = "Your Name"}]
@@ -13,4 +13,4 @@ dependencies = [
 ]
 
 [project.scripts]
-videxer = "web_media_lib.cli:cli"
+videxer = "videxer.cli:cli"
