@@ -6,7 +6,7 @@ from typing import Optional
 import click
 
 from .indexer import write_index_files
-from .utils import ensure_dir
+from .utils import ensure_dir, detect_media_structure, MediaStructure
 
 
 def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
@@ -54,6 +54,9 @@ def cli(input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], 
             json_path = output_dir / json_path
 
     click.echo(f"Scanning media directory: {input_dir}")
+    structure = detect_media_structure(input_dir)
+    click.echo(f"Detected structure: {structure.value}")
+
     write_index_files(input_dir, html_path, json_path)
 
     html_file = html_path or (output_dir / "index.html")

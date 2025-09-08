@@ -6,6 +6,8 @@ import json
 import os
 from datetime import datetime
 
+from .utils import collect_media_items, detect_media_structure, MediaStructure
+
 
 # Extended media extensions
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".m4v", ".webm", ".avi", ".wmv", ".flv", ".m4a"}
@@ -14,33 +16,108 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp"}
 ALL_MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS | IMAGE_EXTS
 
 
-def _find_media_files(dir_path: Path) -> List[str]:
-    """Find all media files in a directory."""
-    media_files = []
-    for p in sorted(dir_path.iterdir()):
-        if p.is_file() and p.suffix.lower() in ALL_MEDIA_EXTS:
-            media_files.append(p.name)
-    return media_files
+def build_index(root: Path) -> Dict:
+    """Build index data for all media directories and files."""
+    # Detect the structure type
+    structure = detect_media_structure(root)
+
+    # Collect all media items using the unified approach
+    raw_items = collect_media_items(root)
+
+    # Process items to add metadata and ensure consistent structure
+    items = []
+    for item in raw_items:
+        processed_item = _process_media_item(item, root)
+        if processed_item:
+            items.append(processed_item)
+
+    return {
+        "items": items,
+        "structure": structure.value,
+        "total_items": len(items)
+    }
 
 
-def _find_video_file(dir_path: Path) -> Optional[str]:
-    """Find the primary video file in a directory (for backwards compatibility)."""
-    for p in sorted(dir_path.iterdir()):
-        if p.is_file() and p.suffix.lower() in VIDEO_EXTS and p.name not in {"metadata.json", "analytics.json"}:
-            return p.name
-    return None
+def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
+    """Process a raw media item to add metadata and ensure consistent structure.
 
+    Args:
+        item: Raw item from collect_media_items
+        root: Root directory
 
-def _thumb_sort_key(name: str) -> int:
-    """Sort key that extracts the numeric index from filenames like 'thumb_12.jpg'."""
+    Returns:
+        Processed item dictionary or None if invalid
+    """
     try:
-        base = Path(name).stem  # thumb_12
-        # Expect pattern thumb_<n>
-        if "_" in base:
-            return int(base.split("_")[-1])
+        # Extract basic information
+        name = item.get("name", "")
+        created_time = None
+        description = None
+
+        # Handle metadata extraction based on item type
+        if item["type"] == "file":
+            # For flat files, extract metadata from filename
+            file_metadata = _extract_metadata_from_filename(item["path"])
+            name = file_metadata["name"] or name
+            created_time = file_metadata["created_time"]
+        else:
+            # For directories, try to load metadata.json if present
+            if "metadata" in item:
+                try:
+                    metadata_path = root / item["metadata"]
+                    with open(metadata_path, "r", encoding="utf-8") as f:
+                        md = json.load(f)
+                        name = md.get("name", name)
+                        created_time = md.get("created_time")
+                        description = md.get("description")
+                except Exception:
+                    pass
+
+        # Use directory/file name as fallback
+        if not name:
+            if item["type"] == "file":
+                name = Path(item["path"]).stem
+            else:
+                name = item["dir"]
+
+        # Build the final item structure
+        processed_item = {
+            "name": name,
+            "created_time": created_time,
+            "size": item.get("size"),
+            "media_type": item.get("media_type", "unknown"),
+            "description": description,
+        }
+
+        # Add type-specific fields
+        if item["type"] == "file":
+            processed_item.update({
+                "path": item["path"],
+                "primary_media": item["path"],
+            })
+        else:
+            processed_item.update({
+                "dir": item["dir"],
+                "media_files": item.get("media_files", []),
+                "primary_media": item.get("primary_media"),
+            })
+
+            # Add optional fields for directories
+            if "metadata" in item:
+                processed_item["metadata"] = item["metadata"]
+            if "analytics" in item:
+                processed_item["analytics"] = item["analytics"]
+            if "thumbs" in item:
+                processed_item["thumbs"] = item["thumbs"]
+            if "thumb_best" in item:
+                processed_item["thumb_best"] = item["thumb_best"]
+            if "video" in item:
+                processed_item["video"] = item["video"]
+
+        return processed_item
+
     except Exception:
-        pass
-    return 0
+        return None
 
 
 def _extract_metadata_from_filename(filename: str) -> Dict[str, Optional[str]]:
@@ -75,105 +152,6 @@ def _extract_metadata_from_filename(filename: str) -> Dict[str, Optional[str]]:
         "name": name_without_ext or filename,
         "created_time": created_time,
     }
-
-
-def build_index(root: Path) -> Dict:
-    """Build index data for all media directories."""
-    items: List[Dict] = []
-
-    for entry in sorted(root.iterdir()):
-        if not entry.is_dir():
-            continue
-
-        # Check for Vimeo-style metadata (backwards compatibility)
-        metadata_path = entry / "metadata.json"
-        analytics_path = entry / "analytics.json"
-        thumbs = sorted([p.name for p in entry.glob("thumb_*.*") if p.is_file()], key=_thumb_sort_key)
-
-        # Find all media files
-        media_files = _find_media_files(entry)
-        if not media_files:
-            continue  # Skip directories with no media files
-
-        # Primary video file (for backwards compatibility)
-        video_file = _find_video_file(entry)
-
-        # Extract metadata
-        name: Optional[str] = None
-        created_time: Optional[str] = None
-        size: Optional[int] = None
-        description: Optional[str] = None
-
-        # Try Vimeo metadata first
-        if metadata_path.exists():
-            try:
-                with open(metadata_path, "r", encoding="utf-8") as f:
-                    md = json.load(f)
-                    name = md.get("name")
-                    created_time = md.get("created_time")
-                    description = md.get("description")
-            except Exception:
-                pass
-
-        # Fall back to file-based metadata if no Vimeo metadata
-        if not name and media_files:
-            primary_file = media_files[0]
-            file_metadata = _extract_metadata_from_filename(primary_file)
-            name = name or file_metadata["name"]
-            created_time = created_time or file_metadata["created_time"]
-
-        # Use directory name as fallback
-        name = name or entry.name
-
-        # Get file size from primary media file
-        primary_media = media_files[0] if media_files else None
-        if primary_media:
-            try:
-                size = (entry / primary_media).stat().st_size
-            except Exception:
-                size = None
-
-        # Determine media type
-        media_type = "unknown"
-        if primary_media:
-            ext = Path(primary_media).suffix.lower()
-            if ext in VIDEO_EXTS:
-                media_type = "video"
-            elif ext in AUDIO_EXTS:
-                media_type = "audio"
-            elif ext in IMAGE_EXTS:
-                media_type = "image"
-
-        # Build item entry
-        item = {
-            "dir": entry.name,
-            "name": name,
-            "created_time": created_time,
-            "size": size,
-            "media_type": media_type,
-            "media_files": media_files,
-            "primary_media": primary_media,
-            "description": description,
-        }
-
-        # Add Vimeo-specific fields if available
-        if metadata_path.exists():
-            item["metadata"] = f"{entry.name}/metadata.json"
-        if analytics_path.exists():
-            item["analytics"] = f"{entry.name}/analytics.json"
-
-        # Add thumbnails
-        if thumbs:
-            item["thumbs"] = [f"{entry.name}/{t}" for t in thumbs]
-            item["thumb_best"] = f"{entry.name}/{thumbs[-1]}"
-
-        # Add video field for backwards compatibility
-        if video_file:
-            item["video"] = f"{entry.name}/{video_file}"
-
-        items.append(item)
-
-    return {"items": items}
 
 
 def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: Optional[Path] = None) -> None:
@@ -398,7 +376,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       }
 
     function extractVideoId(dirName) {
-      const match = dirName.match(/ - (\d+)$/);
+      const match = dirName.match(/ - (\\d+)$/);
       return match ? match[1] : '';
     }
 
