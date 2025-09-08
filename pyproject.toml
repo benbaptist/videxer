@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "web-media-library"
+version = "0.1.0"
+description = "Static media library generator that creates index.html and JSON files for viewing video collections."
+authors = [{name = "Your Name"}]
+requires-python = ">=3.9"
+dependencies = [
+  "click>=8.1.7",
+]
+
+[project.scripts]
+web-media-lib = "web_media_lib.cli:cli"
