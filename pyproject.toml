@@ -15,3 +15,6 @@ dependencies = [
 
 [project.scripts]
 videxer = "videxer.cli:cli"
+
+[tool.setuptools.packages]
+find = {}
