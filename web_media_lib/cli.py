@@ -16,13 +16,7 @@ def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
     return input_dir
 
 
-@click.group()
-def cli():
-    """Web Media Library - Static media library generator."""
-    pass
-
-
-@cli.command("build-index")
+@click.command()
 @click.argument("input_dir", type=click.Path(file_okay=False, dir_okay=True, path_type=Path), default=Path("."))
 @click.option("--output-dir", type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
               help="Output directory for index files (defaults to input directory)")
@@ -30,7 +24,7 @@ def cli():
               help="Custom path for index.html file")
 @click.option("--json-path", type=click.Path(dir_okay=False, path_type=Path),
               help="Custom path for index.json file")
-def build_index_cmd(input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path]):
+def cli(input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path]):
     """Generate a static index.html and index.json for the given media directory.
 
     Scans the input directory for media files (videos, audio, images) and creates

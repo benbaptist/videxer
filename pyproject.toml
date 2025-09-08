@@ -13,4 +13,4 @@ dependencies = [
 ]
 
 [project.scripts]
-web-media-lib = "web_media_lib.cli:cli"
+videxer = "web_media_lib.cli:cli"
