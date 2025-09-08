@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime
 
-from .utils import collect_media_items, detect_media_structure, MediaStructure
+from .utils import collect_media_items, detect_media_structure, MediaStructure, generate_video_thumbnail
 
 
 # Extended media extensions
@@ -16,13 +16,13 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp"}
 ALL_MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS | IMAGE_EXTS
 
 
-def build_index(root: Path) -> Dict:
+def build_index(root: Path, generate_thumbnails: bool = False) -> Dict:
     """Build index data for all media directories and files."""
     # Detect the structure type
     structure = detect_media_structure(root)
 
     # Collect all media items using the unified approach
-    raw_items = collect_media_items(root)
+    raw_items = collect_media_items(root, generate_thumbnails)
 
     # Process items to add metadata and ensure consistent structure
     items = []
@@ -154,13 +154,13 @@ def _extract_metadata_from_filename(filename: str) -> Dict[str, Optional[str]]:
     }
 
 
-def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: Optional[Path] = None) -> None:
+def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: Optional[Path] = None, generate_thumbnails: bool = False) -> None:
     """Generate index.html and index.json files."""
     root = Path(root)
     html_path = html_path or (root / "index.html")
     json_path = json_path or (root / "index.json")
 
-    idx = build_index(root)
+    idx = build_index(root, generate_thumbnails)
 
     # Write JSON
     with open(json_path, "w", encoding="utf-8") as f:

@@ -60,7 +60,7 @@ def detect_media_structure(root: Path) -> MediaStructure:
         return MediaStructure.NESTED
 
 
-def collect_media_items(root: Path) -> List[Dict]:
+def collect_media_items(root: Path, generate_thumbnails: bool = False) -> List[Dict]:
     """Collect all media items from the directory structure.
 
     Handles flat, nested, and mixed structures uniformly.
@@ -78,7 +78,7 @@ def collect_media_items(root: Path) -> List[Dict]:
     if structure in [MediaStructure.FLAT, MediaStructure.MIXED]:
         for entry in sorted(root.iterdir()):
             if entry.is_file() and entry.suffix.lower() in ALL_MEDIA_EXTS:
-                item = _create_file_item(entry, root)
+                item = _create_file_item(entry, root, generate_thumbnails)
                 if item:
                     items.append(item)
 
@@ -86,13 +86,13 @@ def collect_media_items(root: Path) -> List[Dict]:
     if structure in [MediaStructure.NESTED, MediaStructure.MIXED]:
         for entry in sorted(root.iterdir()):
             if entry.is_dir():
-                dir_items = _collect_directory_items(entry, root)
+                dir_items = _collect_directory_items(entry, root, generate_thumbnails)
                 items.extend(dir_items)
 
     return items
 
 
-def _create_file_item(file_path: Path, root: Path) -> Dict:
+def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = False) -> Dict:
     """Create a media item dictionary for a single file.
 
     Args:
@@ -106,7 +106,7 @@ def _create_file_item(file_path: Path, root: Path) -> Dict:
         stat = file_path.stat()
         relative_path = file_path.relative_to(root)
 
-        return {
+        item = {
             "type": "file",
             "path": str(relative_path),
             "name": file_path.stem,
@@ -115,11 +115,21 @@ def _create_file_item(file_path: Path, root: Path) -> Dict:
             "media_type": _determine_media_type(file_path.suffix),
             "full_path": file_path
         }
+
+        # Generate thumbnail for video files if requested
+        if generate_thumbnails and file_path.suffix.lower() in VIDEO_EXTS:
+            thumb_filename = f"{file_path.stem}_thumb.jpg"
+            thumb_path = file_path.parent / thumb_filename
+            if generate_video_thumbnail(file_path, thumb_path):
+                item["thumbs"] = [thumb_filename]
+                item["thumb_best"] = thumb_filename
+
+        return item
     except Exception:
         return None
 
 
-def _collect_directory_items(dir_path: Path, root: Path) -> List[Dict]:
+def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bool = False) -> List[Dict]:
     """Collect media items from a directory.
 
     Args:
@@ -175,6 +185,12 @@ def _collect_directory_items(dir_path: Path, root: Path) -> List[Dict]:
             sorted_thumbs = sorted(thumbnail_files, key=lambda x: _thumb_sort_key(x.name))
             item["thumbs"] = [str(p.relative_to(root)) for p in sorted_thumbs]
             item["thumb_best"] = str(sorted_thumbs[-1].relative_to(root))
+        elif generate_thumbnails and primary_file.suffix.lower() in VIDEO_EXTS:
+            # Generate thumbnail if none exist and it's a video file
+            thumb_path = dir_path / "thumb_01.jpg"
+            if generate_video_thumbnail(primary_file, thumb_path):
+                item["thumbs"] = ["thumb_01.jpg"]
+                item["thumb_best"] = "thumb_01.jpg"
 
         # Add video field for backwards compatibility
         if primary_file.suffix.lower() in {".mp4", ".mov", ".mkv", ".m4v", ".webm", ".avi", ".wmv", ".flv"}:
@@ -216,3 +232,60 @@ def _thumb_sort_key(filename: str) -> int:
     except Exception:
         pass
     return 0
+
+
+def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: float = 1.0, size: tuple = (320, 180)) -> bool:
+    """Generate a thumbnail image from a video file at the specified timestamp.
+
+    Args:
+        video_path: Path to the video file
+        output_path: Path where the thumbnail should be saved
+        timestamp: Time in seconds to extract the frame from (default: 1.0)
+        size: Tuple of (width, height) for the thumbnail size (default: 320x180)
+
+    Returns:
+        True if thumbnail was generated successfully, False otherwise
+    """
+    try:
+        import cv2
+
+        # Open the video file
+        cap = cv2.VideoCapture(str(video_path))
+
+        if not cap.isOpened():
+            return False
+
+        # Get video properties
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = total_frames / fps if fps > 0 else 0
+
+        # Adjust timestamp if it's beyond video duration
+        if timestamp >= duration and duration > 0:
+            timestamp = duration * 0.1  # Use 10% into the video
+
+        # Set the position to the desired timestamp
+        frame_number = int(timestamp * fps)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+
+        # Read the frame
+        ret, frame = cap.read()
+
+        if not ret:
+            cap.release()
+            return False
+
+        # Resize the frame to the desired thumbnail size
+        resized_frame = cv2.resize(frame, size, interpolation=cv2.INTER_LANCZOS4)
+
+        # Save the thumbnail
+        cv2.imwrite(str(output_path), resized_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+
+        cap.release()
+        return True
+
+    except ImportError:
+        # OpenCV not available
+        return False
+    except Exception:
+        return False
