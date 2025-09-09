@@ -25,6 +25,10 @@ IMAGE_EXTS_NO_DOT = {"jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"}
 SUBTITLE_EXTS_NO_DOT = {"srt", "vtt", "ass", "ssa", "sub", "idx"}
 ALL_MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS | IMAGE_EXTS
 
+# Indexer assets directory
+INDEXER_ASSETS_DIR = ".videxer"
+THUMBNAILS_DIR = "thumbnails"
+
 
 class MediaStructure(Enum):
     """Enumeration of possible media directory structures."""
@@ -202,10 +206,19 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
         # Generate thumbnail for video files if requested
         if generate_thumbnails and file_path.suffix.lower() in VIDEO_EXTS:
             thumb_filename = f"{file_path.stem}_thumb.jpg"
-            thumb_path = file_path.parent / thumb_filename
+            assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
+            ensure_dir(assets_dir)
+            thumb_path = assets_dir / thumb_filename
+            # Check for existing thumbnail in old location
+            old_thumb_path = file_path.parent / thumb_filename
+            if old_thumb_path.exists():
+                # Copy old thumbnail to new location if it doesn't exist
+                if not thumb_path.exists():
+                    import shutil
+                    shutil.copy2(old_thumb_path, thumb_path)
             if thumb_path.exists() or generate_video_thumbnail(file_path, thumb_path):
-                item["thumbs"] = [thumb_filename]
-                item["thumb_best"] = thumb_filename
+                item["thumbs"] = [str(thumb_path.relative_to(root))]
+                item["thumb_best"] = str(thumb_path.relative_to(root))
 
         # Look for associated subtitle files
         subtitle_data = _find_and_parse_subtitles(file_path, root)
@@ -243,6 +256,19 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
             elif _is_subtitle_file(entry.name):
                 subtitle_files.append(entry)
 
+    # Also check for thumbnails in the assets directory
+    assets_thumb_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
+    assets_thumbnails = []
+    if assets_thumb_dir.exists():
+        for entry in assets_thumb_dir.iterdir():
+            if entry.is_file() and entry.name.startswith(f"{dir_path.name}_thumb_") and entry.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+                assets_thumbnails.append(entry)
+
+    # Use assets thumbnails if available, otherwise use directory thumbnails
+    if assets_thumbnails:
+        thumbnail_files = assets_thumbnails
+    # If no assets thumbnails and generate_thumbnails is true, we'll generate new ones below
+
     if not media_files:
         return []
 
@@ -278,8 +304,18 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
             item["thumb_best"] = str(sorted_thumbs[-1].relative_to(root))
         elif generate_thumbnails and primary_file.suffix.lower() in VIDEO_EXTS:
             # Generate thumbnail if none exist and it's a video file
-            thumb_path = dir_path / "thumb_01.jpg"
-            if generate_video_thumbnail(primary_file, thumb_path):
+            thumb_filename = f"{dir_path.name}_thumb_01.jpg"
+            assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
+            ensure_dir(assets_dir)
+            thumb_path = assets_dir / thumb_filename
+            # Check for existing thumbnail in old location
+            old_thumb_path = dir_path / "thumb_01.jpg"
+            if old_thumb_path.exists():
+                # Copy old thumbnail to new location if it doesn't exist
+                if not thumb_path.exists():
+                    import shutil
+                    shutil.copy2(old_thumb_path, thumb_path)
+            if thumb_path.exists() or generate_video_thumbnail(primary_file, thumb_path):
                 thumb_rel = str(thumb_path.relative_to(root))
                 item["thumbs"] = [thumb_rel]
                 item["thumb_best"] = thumb_rel
