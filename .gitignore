@@ -1,6 +1,7 @@
 test_*/
 .DS_Store
 test-*.sh
+.github/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

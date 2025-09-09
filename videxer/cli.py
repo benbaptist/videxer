@@ -26,7 +26,9 @@ def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
               help="Custom path for index.json file")
 @click.option("--generate-thumbnails", is_flag=True, default=False,
               help="Generate thumbnails for video files")
-def cli(input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool):
+@click.option("--generate-motion-thumbnails", is_flag=True, default=False,
+              help="Generate animated motion thumbnails for video files (shows on hover)")
+def cli(input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool):
     """Generate a static index.html and index.json for the given media directory.
 
     Scans the input directory for media files (videos, audio, images) and creates
@@ -59,7 +61,7 @@ def cli(input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], 
     structure = detect_media_structure(input_dir)
     click.echo(f"Detected structure: {structure.value}")
 
-    write_index_files(input_dir, html_path, json_path, generate_thumbnails)
+    write_index_files(input_dir, html_path, json_path, generate_thumbnails, generate_motion_thumbnails)
 
     html_file = html_path or (output_dir / "index.html")
     json_file = json_path or (output_dir / "index.json")

@@ -72,13 +72,13 @@ def _add_to_search_index(index_dict: Dict, text: str, item_idx: int):
                 index_dict[word].append(item_idx)
 
 
-def build_index(root: Path, generate_thumbnails: bool = False) -> Dict:
+def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> Dict:
     """Build index data for all media directories and files."""
     # Detect the structure type
     structure = detect_media_structure(root)
 
     # Collect all media items using the unified approach
-    raw_items = collect_media_items(root, generate_thumbnails)
+    raw_items = collect_media_items(root, generate_thumbnails, generate_motion_thumbnails)
 
     # Process items to add metadata and ensure consistent structure
     items = []
@@ -224,13 +224,13 @@ def _extract_metadata_from_filename(filename: str) -> Dict[str, Optional[str]]:
     }
 
 
-def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: Optional[Path] = None, generate_thumbnails: bool = False) -> None:
+def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: Optional[Path] = None, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> None:
     """Generate index.html and index.json files."""
     root = Path(root)
     html_path = html_path or (root / "index.html")
     json_path = json_path or (root / "index.json")
 
-    idx = build_index(root, generate_thumbnails)
+    idx = build_index(root, generate_thumbnails, generate_motion_thumbnails)
 
     # Write JSON
     with open(json_path, "w", encoding="utf-8") as f:
@@ -357,9 +357,21 @@ _INDEX_HTML = """<!DOCTYPE html>
           img.className = 'thumb';
           img.loading = 'lazy';
           const thumbSrc = pickThumb(it);
+          const motionThumbSrc = it.motion_thumb;
           if (thumbSrc) {
             img.src = thumbSrc;
             img.alt = it.name || it.dir;
+            // Add hover functionality for motion thumbnails
+            if (motionThumbSrc) {
+              let originalSrc = thumbSrc;
+              let motionSrc = motionThumbSrc;
+              img.addEventListener('mouseenter', () => {
+                img.src = motionSrc;
+              });
+              img.addEventListener('mouseleave', () => {
+                img.src = originalSrc;
+              });
+            }
           } else {
             // Placeholder for media without thumbnails
             img.src = 'data:image/svg+xml;base64,' + btoa('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"320\" height=\"180\" fill=\"#1f2937\"/><text x=\"160\" y=\"90\" text-anchor=\"middle\" fill=\"#9ca3af\" font-family=\"system-ui\" font-size=\"14\">' + it.media_type + '</text></svg>');

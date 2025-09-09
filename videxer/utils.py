@@ -68,7 +68,7 @@ def detect_media_structure(root: Path) -> MediaStructure:
         return MediaStructure.NESTED
 
 
-def collect_media_items(root: Path, generate_thumbnails: bool = False) -> List[Dict]:
+def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> List[Dict]:
     """Collect all media items from the directory structure.
 
     Handles flat, nested, and mixed structures uniformly.
@@ -86,7 +86,7 @@ def collect_media_items(root: Path, generate_thumbnails: bool = False) -> List[D
     if structure in [MediaStructure.FLAT, MediaStructure.MIXED]:
         for entry in sorted(root.iterdir()):
             if entry.is_file() and entry.suffix.lower() in ALL_MEDIA_EXTS and not _is_thumbnail_file(entry.name):
-                item = _create_file_item(entry, root, generate_thumbnails)
+                item = _create_file_item(entry, root, generate_thumbnails, generate_motion_thumbnails)
                 if item:
                     items.append(item)
 
@@ -94,7 +94,7 @@ def collect_media_items(root: Path, generate_thumbnails: bool = False) -> List[D
     if structure in [MediaStructure.NESTED, MediaStructure.MIXED]:
         for entry in sorted(root.iterdir()):
             if entry.is_dir():
-                dir_items = _collect_directory_items(entry, root, generate_thumbnails)
+                dir_items = _collect_directory_items(entry, root, generate_thumbnails, generate_motion_thumbnails)
                 items.extend(dir_items)
 
     return items
@@ -179,7 +179,7 @@ def _detect_subtitle_language(filename: str) -> str:
     return 'unknown'
 
 
-def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = False) -> Dict:
+def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> Dict:
     """Create a media item dictionary for a single file.
 
     Args:
@@ -220,6 +220,15 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
                 item["thumbs"] = [str(thumb_path.relative_to(root))]
                 item["thumb_best"] = str(thumb_path.relative_to(root))
 
+        # Generate motion thumbnail for video files if requested
+        if generate_motion_thumbnails and file_path.suffix.lower() in VIDEO_EXTS:
+            motion_thumb_filename = f"{file_path.stem}_motion.gif"
+            assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
+            ensure_dir(assets_dir)
+            motion_thumb_path = assets_dir / motion_thumb_filename
+            if motion_thumb_path.exists() or generate_motion_thumbnail(file_path, motion_thumb_path):
+                item["motion_thumb"] = str(motion_thumb_path.relative_to(root))
+
         # Look for associated subtitle files
         subtitle_data = _find_and_parse_subtitles(file_path, root)
         if subtitle_data:
@@ -230,7 +239,7 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
         return None
 
 
-def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bool = False) -> List[Dict]:
+def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> List[Dict]:
     """Collect media items from a directory.
 
     Args:
@@ -319,6 +328,15 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
                 thumb_rel = str(thumb_path.relative_to(root))
                 item["thumbs"] = [thumb_rel]
                 item["thumb_best"] = thumb_rel
+
+        # Generate motion thumbnail if requested
+        if generate_motion_thumbnails and primary_file.suffix.lower() in VIDEO_EXTS:
+            motion_thumb_filename = f"{dir_path.name}_motion.gif"
+            assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
+            ensure_dir(assets_dir)
+            motion_thumb_path = assets_dir / motion_thumb_filename
+            if motion_thumb_path.exists() or generate_motion_thumbnail(primary_file, motion_thumb_path):
+                item["motion_thumb"] = str(motion_thumb_path.relative_to(root))
 
         # Add video field for backwards compatibility
         if primary_file.suffix.lower() in {".mp4", ".mov", ".mkv", ".m4v", ".webm", ".avi", ".wmv", ".flv"}:
@@ -605,6 +623,94 @@ def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: flo
 
     except ImportError:
         # OpenCV not available
+        return False
+    except Exception:
+        return False
+
+
+def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: float = 2.0, fps: int = 10, size: tuple = (320, 180)) -> bool:
+    """Generate an animated GIF thumbnail from a video file showing short clips at different timestamps.
+
+    Args:
+        video_path: Path to the video file
+        output_path: Path where the motion thumbnail should be saved
+        duration: Total duration of the motion thumbnail in seconds (default: 2.0)
+        fps: Frames per second for the animation (default: 10)
+        size: Tuple of (width, height) for the thumbnail size (default: 320x180)
+
+    Returns:
+        True if motion thumbnail was generated successfully, False otherwise
+    """
+    try:
+        import cv2
+        from PIL import Image
+
+        # Open the video file
+        cap = cv2.VideoCapture(str(video_path))
+
+        if not cap.isOpened():
+            return False
+
+        # Get video properties
+        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        video_duration = total_frames / video_fps if video_fps > 0 else 0
+
+        if video_duration < 1.0:
+            # For very short videos, just use the static thumbnail approach
+            return generate_video_thumbnail(video_path, output_path, 0.1, size)
+
+        # Calculate timestamps for motion thumbnail
+        # Sample 4-6 points throughout the video
+        num_samples = min(6, max(4, int(video_duration / 10)))  # More samples for longer videos
+        timestamps = []
+
+        for i in range(num_samples):
+            # Distribute timestamps evenly, avoiding the very beginning and end
+            progress = (i + 1) / (num_samples + 1)
+            timestamp = video_duration * progress
+            timestamps.append(timestamp)
+
+        frames = []
+
+        for timestamp in timestamps:
+            # Set the position to the desired timestamp
+            frame_number = int(timestamp * video_fps)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+
+            # Read the frame
+            ret, frame = cap.read()
+
+            if ret:
+                # Resize the frame
+                resized_frame = cv2.resize(frame, size, interpolation=cv2.INTER_LANCZOS4)
+                # Convert BGR to RGB for PIL
+                rgb_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
+                frames.append(Image.fromarray(rgb_frame))
+
+        cap.release()
+
+        if len(frames) < 2:
+            return False
+
+        # Calculate duration per frame in milliseconds
+        frame_duration = int((duration * 1000) / len(frames))
+
+        # Save as animated GIF
+        frames[0].save(
+            str(output_path),
+            save_all=True,
+            append_images=frames[1:],
+            duration=frame_duration,
+            loop=0,  # Infinite loop
+            optimize=True,
+            quality=85
+        )
+
+        return True
+
+    except ImportError:
+        # PIL or OpenCV not available
         return False
     except Exception:
         return False
