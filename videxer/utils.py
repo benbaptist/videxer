@@ -277,7 +277,7 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
 
         # Generate motion thumbnail for video files if requested
         if generate_motion_thumbnails and file_path.suffix.lower() in VIDEO_EXTS:
-            motion_thumb_filename = f"{file_path.stem}_motion.gif"
+            motion_thumb_filename = f"{file_path.stem}_motion.mp4"
             assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
             ensure_dir(assets_dir)
             motion_thumb_path = assets_dir / motion_thumb_filename
@@ -399,7 +399,7 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
 
         # Generate motion thumbnail if requested
         if generate_motion_thumbnails and primary_file.suffix.lower() in VIDEO_EXTS:
-            motion_thumb_filename = f"{dir_path.name}_motion.gif"
+            motion_thumb_filename = f"{dir_path.name}_motion.mp4"
             assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
             ensure_dir(assets_dir)
             motion_thumb_path = assets_dir / motion_thumb_filename
@@ -710,7 +710,7 @@ def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: flo
 
 
 def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: float = 2.0, fps: int = 10, size: tuple = (320, 180)) -> bool:
-    """Generate an animated GIF thumbnail from a video file showing short clips at different timestamps.
+    """Generate an efficient video thumbnail from a video file showing short clips at different timestamps.
 
     Args:
         video_path: Path to the video file
@@ -722,6 +722,93 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
     Returns:
         True if motion thumbnail was generated successfully, False otherwise
     """
+    try:
+        import tempfile
+        import os
+
+        # Get video duration using ffprobe
+        probe = ffmpeg.probe(str(video_path))
+        video_info = next(s for s in probe['streams'] if s['codec_type'] == 'video')
+        video_duration = float(probe['format']['duration'])
+
+        if video_duration < 1.0:
+            # For very short videos, just create a static video thumbnail
+            return generate_video_thumbnail(video_path, output_path, 0.1, size)
+
+        # Calculate timestamps for motion thumbnail segments
+        # Sample 4-6 points throughout the video
+        num_samples = min(6, max(4, int(video_duration / 10)))  # More samples for longer videos
+        segment_duration = duration / num_samples  # Duration per segment
+
+        # Create temporary directory for segment files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            segment_files = []
+
+            for i in range(num_samples):
+                # Distribute timestamps evenly, avoiding the very beginning and end
+                progress = (i + 1) / (num_samples + 1)
+                timestamp = video_duration * progress
+
+                # Extract a short segment at this timestamp
+                segment_path = Path(temp_dir) / f"segment_{i:02d}.mp4"
+
+                # Extract segment with ffmpeg
+                stream = ffmpeg.input(str(video_path), ss=timestamp, t=segment_duration)
+                stream = ffmpeg.output(
+                    stream,
+                    str(segment_path),
+                    vcodec='libx264',
+                    acodec='aac',
+                    preset='ultrafast',  # Fast encoding for thumbnails
+                    crf=32,            # Higher CRF for smaller files
+                    vf=f'scale={size[0]}:{size[1]}:force_original_aspect_ratio=decrease,pad={size[0]}:{size[1]}:(ow-iw)/2:(oh-ih)/2',
+                    r=fps,             # Frame rate
+                    audio_bitrate='64k',
+                    maxrate='500k',   # Low bitrate for thumbnails
+                    bufsize='1M',
+                    movflags='faststart'
+                )
+                ffmpeg.run(stream, overwrite_output=True, quiet=True)
+                segment_files.append(segment_path)
+
+            if len(segment_files) < 2:
+                return False
+
+            # Create a concat file for ffmpeg
+            concat_file = Path(temp_dir) / "concat.txt"
+            with open(concat_file, 'w') as f:
+                for segment in segment_files:
+                    f.write(f"file '{segment}'\n")
+
+            # Concatenate all segments into final motion thumbnail
+            stream = ffmpeg.input(str(concat_file), format='concat', safe=0)
+            stream = ffmpeg.output(
+                stream,
+                str(output_path),
+                vcodec='libx264',
+                acodec='aac',
+                preset='fast',
+                crf=28,            # Good quality/size balance
+                r=fps,
+                audio_bitrate='64k',
+                maxrate='800k',    # Reasonable bitrate for motion thumbnails
+                bufsize='1.6M',
+                movflags='faststart',
+                pix_fmt='yuv420p'  # Ensure compatibility
+            )
+            ffmpeg.run(stream, overwrite_output=True, quiet=True)
+
+        return output_path.exists()
+
+    except ImportError:
+        # FFmpeg not available, fall back to old method
+        return _generate_motion_thumbnail_gif(video_path, output_path, duration, fps, size)
+    except Exception:
+        return False
+
+
+def _generate_motion_thumbnail_gif(video_path: Path, output_path: Path, duration: float = 2.0, fps: int = 10, size: tuple = (320, 180)) -> bool:
+    """Legacy GIF-based motion thumbnail generation (fallback)."""
     try:
         import cv2
         from PIL import Image
