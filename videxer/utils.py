@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional, Any
 from enum import Enum
 import yaml
+import ffmpeg
 
 
 def ensure_dir(path: Path) -> None:
@@ -69,7 +70,7 @@ def detect_media_structure(root: Path) -> MediaStructure:
         return MediaStructure.NESTED
 
 
-def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> List[Dict]:
+def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> List[Dict]:
     """Collect all media items from the directory structure.
 
     Handles flat, nested, and mixed structures uniformly.
@@ -87,7 +88,7 @@ def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_
     if structure in [MediaStructure.FLAT, MediaStructure.MIXED]:
         for entry in sorted(root.iterdir()):
             if entry.is_file() and entry.suffix.lower() in ALL_MEDIA_EXTS and not _is_thumbnail_file(entry.name):
-                item = _create_file_item(entry, root, generate_thumbnails, generate_motion_thumbnails)
+                item = _create_file_item(entry, root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
                 if item:
                     items.append(item)
 
@@ -95,7 +96,7 @@ def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_
     if structure in [MediaStructure.NESTED, MediaStructure.MIXED]:
         for entry in sorted(root.iterdir()):
             if entry.is_dir():
-                dir_items = _collect_directory_items(entry, root, generate_thumbnails, generate_motion_thumbnails)
+                dir_items = _collect_directory_items(entry, root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
                 items.extend(dir_items)
 
     return items
@@ -180,7 +181,60 @@ def _detect_subtitle_language(filename: str) -> str:
     return 'unknown'
 
 
-def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> Dict:
+def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
+    """Generate a web-optimized transcoded version of a video file.
+
+    Args:
+        input_path: Path to the input video file
+        output_path: Path where the transcoded file should be saved
+
+    Returns:
+        True if transcoding was successful, False otherwise
+    """
+    try:
+        # Web-optimized settings: low resolution, low bitrate, fast encoding
+        stream = ffmpeg.input(str(input_path))
+        stream = ffmpeg.output(
+            stream,
+            str(output_path),
+            vcodec='libx264',  # H.264 for broad compatibility
+            acodec='aac',      # AAC for audio
+            preset='fast',     # Fast encoding
+            crf=28,           # Higher CRF = lower quality, smaller file
+            vf='scale=-2:720', # Scale to 720p height, maintain aspect ratio
+            maxrate='2M',     # Maximum bitrate 2Mbps
+            bufsize='4M',     # Buffer size
+            audio_bitrate='128k',  # Low audio bitrate
+            movflags='faststart'    # Enable fast start for web playback
+        )
+        ffmpeg.run(stream, overwrite_output=True, quiet=True)
+        return output_path.exists()
+    except Exception:
+        return False
+
+
+def cleanup_old_transcodes(root: Path, current_transcodes: Set[str]) -> None:
+    """Clean up transcoded files that are no longer referenced.
+
+    Args:
+        root: Root directory
+        current_transcodes: Set of current transcoded file paths (relative to root)
+    """
+    transcode_dir = root / INDEXER_ASSETS_DIR / "transcodes"
+    if not transcode_dir.exists():
+        return
+
+    for transcode_file in transcode_dir.iterdir():
+        if transcode_file.is_file():
+            relative_path = str(transcode_file.relative_to(root))
+            if relative_path not in current_transcodes:
+                try:
+                    transcode_file.unlink()
+                except Exception:
+                    pass  # Ignore cleanup errors
+
+
+def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> Dict:
     """Create a media item dictionary for a single file.
 
     Args:
@@ -232,6 +286,17 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
             if motion_thumb_path.exists():
                 item["motion_thumb"] = str(motion_thumb_path.relative_to(root))
 
+        # Generate transcoded version for video files if requested
+        if generate_transcodes and file_path.suffix.lower() in VIDEO_EXTS:
+            transcode_filename = f"{file_path.stem}_web.mp4"
+            assets_dir = root / INDEXER_ASSETS_DIR / "transcodes"
+            ensure_dir(assets_dir)
+            transcode_path = assets_dir / transcode_filename
+            if not transcode_path.exists():
+                generate_video_transcode(file_path, transcode_path)
+            if transcode_path.exists():
+                item["transcoded"] = str(transcode_path.relative_to(root))
+
         # Look for associated subtitle files
         subtitle_data = _find_and_parse_subtitles(file_path, root)
         if subtitle_data:
@@ -242,7 +307,7 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
         return None
 
 
-def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> List[Dict]:
+def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> List[Dict]:
     """Collect media items from a directory.
 
     Args:
@@ -342,6 +407,17 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
                 generate_motion_thumbnail(primary_file, motion_thumb_path)
             if motion_thumb_path.exists():
                 item["motion_thumb"] = str(motion_thumb_path.relative_to(root))
+
+        # Generate transcoded version if requested
+        if generate_transcodes and primary_file.suffix.lower() in VIDEO_EXTS:
+            transcode_filename = f"{dir_path.name}_web.mp4"
+            assets_dir = root / INDEXER_ASSETS_DIR / "transcodes"
+            ensure_dir(assets_dir)
+            transcode_path = assets_dir / transcode_filename
+            if not transcode_path.exists():
+                generate_video_transcode(primary_file, transcode_path)
+            if transcode_path.exists():
+                item["transcoded"] = str(transcode_path.relative_to(root))
 
         # Add video field for backwards compatibility
         if primary_file.suffix.lower() in {".mp4", ".mov", ".mkv", ".m4v", ".webm", ".avi", ".wmv", ".flv"}:

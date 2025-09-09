@@ -72,20 +72,29 @@ def _add_to_search_index(index_dict: Dict, text: str, item_idx: int):
                 index_dict[word].append(item_idx)
 
 
-def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> Dict:
+def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> Dict:
     """Build index data for all media directories and files."""
     # Detect the structure type
     structure = detect_media_structure(root)
 
     # Collect all media items using the unified approach
-    raw_items = collect_media_items(root, generate_thumbnails, generate_motion_thumbnails)
+    raw_items = collect_media_items(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
 
     # Process items to add metadata and ensure consistent structure
     items = []
+    current_transcodes = set()
     for item in raw_items:
         processed_item = _process_media_item(item, root)
         if processed_item:
             items.append(processed_item)
+            # Collect transcoded file paths for cleanup
+            if "transcoded" in processed_item:
+                current_transcodes.add(processed_item["transcoded"])
+
+    # Clean up old transcoded files if transcoding was requested
+    if generate_transcodes:
+        from .utils import cleanup_old_transcodes
+        cleanup_old_transcodes(root, current_transcodes)
 
     # Build search index for efficient subtitle and text search
     search_index = _build_search_index(items)
@@ -163,6 +172,8 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
                 processed_item["thumb_best"] = item["thumb_best"]
             if "motion_thumb" in item:
                 processed_item["motion_thumb"] = item["motion_thumb"]
+            if "transcoded" in item:
+                processed_item["transcoded"] = item["transcoded"]
             if "subtitles" in item:
                 processed_item["subtitles"] = item["subtitles"]
         else:
@@ -183,6 +194,8 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
                 processed_item["thumb_best"] = item["thumb_best"]
             if "motion_thumb" in item:
                 processed_item["motion_thumb"] = item["motion_thumb"]
+            if "transcoded" in item:
+                processed_item["transcoded"] = item["transcoded"]
             if "video" in item:
                 processed_item["video"] = item["video"]
             if "subtitles" in item:
@@ -228,13 +241,13 @@ def _extract_metadata_from_filename(filename: str) -> Dict[str, Optional[str]]:
     }
 
 
-def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: Optional[Path] = None, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False) -> None:
+def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: Optional[Path] = None, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> None:
     """Generate index.html and index.json files."""
     root = Path(root)
     html_path = html_path or (root / "index.html")
     json_path = json_path or (root / "index.json")
 
-    idx = build_index(root, generate_thumbnails, generate_motion_thumbnails)
+    idx = build_index(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
 
     # Write JSON
     with open(json_path, "w", encoding="utf-8") as f:
@@ -419,7 +432,7 @@ _INDEX_HTML = """<!DOCTYPE html>
             if (it.media_type === 'image') {
               media.addEventListener('click', () => openImageViewer(it.primary_media, it.name || it.dir));
             } else {
-              media.addEventListener('click', () => openPlayer(it.primary_media, it.name || it.dir, it.media_type));
+              media.addEventListener('click', () => openPlayer(it, it.name || it.dir, it.media_type));
             }
           }
           card.appendChild(media);
@@ -435,7 +448,7 @@ _INDEX_HTML = """<!DOCTYPE html>
             if (it.media_type === 'image') {
               tbtn.addEventListener('click', () => openImageViewer(it.primary_media, it.name || it.dir));
             } else {
-              tbtn.addEventListener('click', () => openPlayer(it.primary_media, it.name || it.dir, it.media_type));
+              tbtn.addEventListener('click', () => openPlayer(it, it.name || it.dir, it.media_type));
             }
             title.appendChild(tbtn);
           } else {
@@ -604,10 +617,14 @@ _INDEX_HTML = """<!DOCTYPE html>
       modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
       window.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 
-      window.openPlayer = (src, title, type) => {
+      window.openPlayer = (item, title, type) => {
         modalTitle.textContent = title || 'Media';
         // Clear previous content
         mediaEl.innerHTML = '';
+        
+        // Prefer transcoded version if available
+        let src = item.transcoded || item.primary_media;
+        
         if (type === 'video') {
           mediaEl.innerHTML = '<video controls preload=\"metadata\" style=\"width:100%; height:auto;\"></video>';
           const video = mediaEl.querySelector('video');

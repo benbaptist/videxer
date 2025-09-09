@@ -28,8 +28,10 @@ def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
               help="Generate thumbnails for video files")
 @click.option("--generate-motion-thumbnails", is_flag=True, default=False,
               help="Generate animated motion thumbnails for video files")
+@click.option("--generate-transcodes", is_flag=True, default=False,
+              help="Generate web-optimized transcoded versions of videos")
 @click.pass_context
-def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool):
+def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool, generate_transcodes: bool):
     """Generate a static index.html and index.json for the given media directory.
 
     Scans the input directory for media files (videos, audio, images) and creates
@@ -58,6 +60,8 @@ def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Pa
         provided_args['generate_thumbnails'] = generate_thumbnails
     if generate_motion_thumbnails:
         provided_args['generate_motion_thumbnails'] = generate_motion_thumbnails
+    if generate_transcodes:
+        provided_args['generate_transcodes'] = generate_transcodes
 
     # Merge config with provided args (CLI takes precedence)
     merged_config = merge_config_with_args(config, provided_args)
@@ -68,6 +72,7 @@ def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Pa
     json_path = merged_config.get('json_path')
     generate_thumbnails = merged_config.get('generate_thumbnails', False)
     generate_motion_thumbnails = merged_config.get('generate_motion_thumbnails', False)
+    generate_transcodes = merged_config.get('generate_transcodes', False)
 
     # Convert string paths back to Path objects
     if output_dir:
@@ -89,7 +94,7 @@ def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Pa
     structure = detect_media_structure(input_dir)
     click.echo(f"Detected structure: {structure.value}")
 
-    write_index_files(input_dir, html_path, json_path, generate_thumbnails, generate_motion_thumbnails)
+    write_index_files(input_dir, html_path, json_path, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
 
     html_file = html_path or (output_dir / "index.html")
     json_file = json_path or (output_dir / "index.json")
