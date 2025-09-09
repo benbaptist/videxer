@@ -16,6 +16,62 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp"}
 ALL_MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS | IMAGE_EXTS
 
 
+def _build_search_index(items: List[Dict]) -> Dict:
+    """Build a search index for efficient text and subtitle search.
+
+    Args:
+        items: List of processed media items
+
+    Returns:
+        Search index dictionary
+    """
+    search_index = {
+        "subtitle_terms": {},  # term -> [item_indices]
+        "name_terms": {},      # term -> [item_indices]
+        "description_terms": {}, # term -> [item_indices]
+        "item_map": []        # index -> item_id for reverse lookup
+    }
+
+    for idx, item in enumerate(items):
+        item_id = f"{item.get('type', 'unknown')}_{item.get('path', item.get('dir', str(idx)))}"
+        search_index["item_map"].append(item_id)
+
+        # Index name
+        name = item.get("name", "").lower()
+        if name:
+            _add_to_search_index(search_index["name_terms"], name, idx)
+
+        # Index description
+        description = item.get("description") or ""
+        if description:
+            description = str(description).lower()
+            _add_to_search_index(search_index["description_terms"], description, idx)
+
+        # Index subtitle text
+        if "subtitles" in item:
+            for subtitle in item["subtitles"]:
+                combined_text = subtitle.get("text_combined", "").lower()
+                if combined_text:
+                    _add_to_search_index(search_index["subtitle_terms"], combined_text, idx)
+
+    return search_index
+
+
+def _add_to_search_index(index_dict: Dict, text: str, item_idx: int):
+    """Add text to search index, splitting into words and handling duplicates."""
+    import re
+
+    # Split text into words, keeping only alphanumeric characters
+    words = re.findall(r'\b\w+\b', text)
+
+    for word in words:
+        if len(word) >= 3:  # Only index words with 3+ characters
+            if word not in index_dict:
+                index_dict[word] = []
+            if item_idx not in index_dict[word]:
+                index_dict[word].append(item_idx)
+
+
 def build_index(root: Path, generate_thumbnails: bool = False) -> Dict:
     """Build index data for all media directories and files."""
     # Detect the structure type
@@ -31,10 +87,14 @@ def build_index(root: Path, generate_thumbnails: bool = False) -> Dict:
         if processed_item:
             items.append(processed_item)
 
+    # Build search index for efficient subtitle and text search
+    search_index = _build_search_index(items)
+
     return {
         "items": items,
         "structure": structure.value,
-        "total_items": len(items)
+        "total_items": len(items),
+        "search_index": search_index
     }
 
 
@@ -101,6 +161,8 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
                 processed_item["thumbs"] = item["thumbs"]
             if "thumb_best" in item:
                 processed_item["thumb_best"] = item["thumb_best"]
+            if "subtitles" in item:
+                processed_item["subtitles"] = item["subtitles"]
         else:
             processed_item.update({
                 "dir": item["dir"],
@@ -119,6 +181,8 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
                 processed_item["thumb_best"] = item["thumb_best"]
             if "video" in item:
                 processed_item["video"] = item["video"]
+            if "subtitles" in item:
+                processed_item["subtitles"] = item["subtitles"]
 
         return processed_item
 
@@ -274,6 +338,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       const dirBtn = document.getElementById('direction');
       const viewBtn = document.getElementById('view');
   let items = data.items || [];
+  let searchIndex = data.search_index || { subtitle_terms: {}, name_terms: {}, description_terms: {}, item_map: [] };
   let sortKey = 'date'; // alpha | size | date | type
   let sortDir = 'desc'; // asc | desc
   let viewMode = 'grid'; // grid | list
@@ -386,15 +451,70 @@ _INDEX_HTML = """<!DOCTYPE html>
       return match ? match[1] : '';
     }
 
+    function searchInSubtitles(item, query) {
+      if (!item.subtitles) return false;
+      const q = query.toLowerCase();
+      for (const subtitle of item.subtitles) {
+        if (subtitle.text_combined && subtitle.text_combined.includes(q)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     function apply() {
-      const q = search.value.toLowerCase();
-      const filtered = items.filter(it => {
-        const name = (it.name || '').toLowerCase();
-        const dir = (it.dir || '').toLowerCase();
-        const videoId = extractVideoId(it.dir || '').toLowerCase();
-        const type = (it.media_type || '').toLowerCase();
-        return name.includes(q) || dir.includes(q) || videoId.includes(q) || type.includes(q);
-      });
+      const q = search.value.toLowerCase().trim();
+      let filtered;
+
+      if (!q) {
+        // No search query, show all items
+        filtered = items;
+      } else {
+        // Use search index for efficient filtering if available
+        if (searchIndex.item_map && searchIndex.item_map.length > 0) {
+          const matchingIndices = new Set();
+
+          // Search in names
+          for (const term in searchIndex.name_terms) {
+            if (term.includes(q)) {
+              searchIndex.name_terms[term].forEach(idx => matchingIndices.add(idx));
+            }
+          }
+
+          // Search in descriptions
+          for (const term in searchIndex.description_terms) {
+            if (term.includes(q)) {
+              searchIndex.description_terms[term].forEach(idx => matchingIndices.add(idx));
+            }
+          }
+
+          // Search in subtitles
+          for (const term in searchIndex.subtitle_terms) {
+            if (term.includes(q)) {
+              searchIndex.subtitle_terms[term].forEach(idx => matchingIndices.add(idx));
+            }
+          }
+
+          filtered = Array.from(matchingIndices).map(idx => items[idx]).filter(Boolean);
+        } else {
+          // Fallback to direct search if no index available
+          filtered = items.filter(it => {
+            const name = (it.name || '').toLowerCase();
+            const dir = (it.dir || '').toLowerCase();
+            const videoId = extractVideoId(it.dir || '').toLowerCase();
+            const type = (it.media_type || '').toLowerCase();
+            const description = (it.description || '').toLowerCase();
+
+            return name.includes(q) ||
+                   dir.includes(q) ||
+                   videoId.includes(q) ||
+                   type.includes(q) ||
+                   description.includes(q) ||
+                   searchInSubtitles(it, q);
+          });
+        }
+      }
+
       const sorted = sortItems(filtered);
       render(sorted);
     }
@@ -468,7 +588,10 @@ _INDEX_HTML = """<!DOCTYPE html>
   <header>
     <h1>Media Library Index</h1>
     <div class="toolbar">
-      <input id="search" class="input" placeholder="Search media..." />
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <input id="search" class="input" placeholder="Search media, subtitles, descriptions..." />
+        <div style="font-size: 11px; color: var(--muted); margin-left: 2px;">Search includes video subtitles when available</div>
+      </div>
       <select id="sort" class="select">
         <option value="date" selected>Date</option>
         <option value="alpha">Alphabetical</option>

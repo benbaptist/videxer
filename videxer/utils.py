@@ -15,10 +15,14 @@ VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".m4v", ".webm", ".avi", ".wmv", ".flv", "
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp"}
 
+# Subtitle file extensions
+SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".idx"}
+
 # Extension sets without dots for easier matching
 VIDEO_EXTS_NO_DOT = {"mp4", "mov", "mkv", "m4v", "webm", "avi", "wmv", "flv", "m4a"}
 AUDIO_EXTS_NO_DOT = {"mp3", "wav", "flac", "aac", "ogg", "m4a", "wma"}
 IMAGE_EXTS_NO_DOT = {"jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"}
+SUBTITLE_EXTS_NO_DOT = {"srt", "vtt", "ass", "ssa", "sub", "idx"}
 ALL_MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS | IMAGE_EXTS
 
 
@@ -92,6 +96,85 @@ def collect_media_items(root: Path, generate_thumbnails: bool = False) -> List[D
     return items
 
 
+def _find_and_parse_subtitles(media_path: Path, root: Path) -> List[Dict]:
+    """Find and parse subtitle files associated with a media file.
+
+    Args:
+        media_path: Path to the media file
+        root: Root directory for relative path calculation
+
+    Returns:
+        List of subtitle dictionaries with file info and parsed text
+    """
+    subtitles = []
+    media_stem = media_path.stem
+    media_dir = media_path.parent
+
+    # Common subtitle filename patterns
+    patterns = [
+        f"{media_stem}.srt",
+        f"{media_stem}.vtt",
+        f"{media_stem}.ass",
+        f"{media_stem}.ssa",
+        f"{media_stem}.sub",
+        f"{media_stem}.en.srt",
+        f"{media_stem}.en.vtt",
+        f"{media_stem}.eng.srt",
+        f"{media_stem}.eng.vtt",
+        f"{media_stem}.english.srt",
+        f"{media_stem}.english.vtt",
+    ]
+
+    for pattern in patterns:
+        subtitle_path = media_dir / pattern
+        if subtitle_path.exists() and subtitle_path.is_file():
+            try:
+                parsed_data = parse_subtitle_file(subtitle_path)
+                if parsed_data["text"]:  # Only include if we successfully parsed text
+                    subtitles.append({
+                        "file": str(subtitle_path.relative_to(root)),
+                        "language": _detect_subtitle_language(pattern),
+                        "text": parsed_data["text"],
+                        "timestamps": parsed_data["timestamps"],
+                        "text_combined": " ".join(parsed_data["text"]).lower()  # For efficient searching
+                    })
+            except Exception:
+                continue
+
+    return subtitles
+
+
+def _detect_subtitle_language(filename: str) -> str:
+    """Detect subtitle language from filename patterns."""
+    name_lower = filename.lower()
+
+    # Look for language codes separated by dots or underscores
+    import re
+    parts = re.split(r'[._]', name_lower)
+
+    for part in parts:
+        if part in ['english', 'eng', 'en']:
+            return 'english'
+        elif part in ['spanish', 'spa', 'es']:
+            return 'spanish'
+        elif part in ['french', 'fre', 'fr']:
+            return 'french'
+        elif part in ['german', 'ger', 'de']:
+            return 'german'
+        elif part in ['italian', 'ita', 'it']:
+            return 'italian'
+        elif part in ['portuguese', 'por', 'pt']:
+            return 'portuguese'
+        elif part in ['russian', 'rus', 'ru']:
+            return 'russian'
+        elif part in ['japanese', 'jpn', 'ja']:
+            return 'japanese'
+        elif part in ['chinese', 'chi', 'zh']:
+            return 'chinese'
+
+    return 'unknown'
+
+
 def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = False) -> Dict:
     """Create a media item dictionary for a single file.
 
@@ -124,6 +207,11 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
                 item["thumbs"] = [thumb_filename]
                 item["thumb_best"] = thumb_filename
 
+        # Look for associated subtitle files
+        subtitle_data = _find_and_parse_subtitles(file_path, root)
+        if subtitle_data:
+            item["subtitles"] = subtitle_data
+
         return item
     except Exception:
         return None
@@ -142,6 +230,7 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
     media_files = []
     metadata_files = {}
     thumbnail_files = []
+    subtitle_files = []
 
     for entry in sorted(dir_path.iterdir()):
         if entry.is_file():
@@ -151,6 +240,8 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
                 metadata_files[entry.name] = entry
             elif entry.name.startswith("thumb_") and entry.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
                 thumbnail_files.append(entry)
+            elif _is_subtitle_file(entry.name):
+                subtitle_files.append(entry)
 
     if not media_files:
         return []
@@ -197,6 +288,25 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
         if primary_file.suffix.lower() in {".mp4", ".mov", ".mkv", ".m4v", ".webm", ".avi", ".wmv", ".flv"}:
             item["video"] = str(primary_file.relative_to(root))
 
+        # Add subtitle data
+        if subtitle_files:
+            subtitles = []
+            for subtitle_file in subtitle_files:
+                try:
+                    parsed_data = parse_subtitle_file(subtitle_file)
+                    if parsed_data["text"]:
+                        subtitles.append({
+                            "file": str(subtitle_file.relative_to(root)),
+                            "language": _detect_subtitle_language(subtitle_file.name),
+                            "text": parsed_data["text"],
+                            "timestamps": parsed_data["timestamps"],
+                            "text_combined": " ".join(parsed_data["text"]).lower()
+                        })
+                except Exception:
+                    continue
+            if subtitles:
+                item["subtitles"] = subtitles
+
         return [item]
     except Exception:
         return []
@@ -227,6 +337,172 @@ def _is_thumbnail_file(filename: str) -> bool:
     """Check if a file is a thumbnail based on its name."""
     name = filename.lower()
     return name.startswith("thumb_") or "_thumb" in name or name.endswith("_thumb.jpg") or name.endswith("_thumb.jpeg") or name.endswith("_thumb.png") or name.endswith("_thumb.webp")
+
+
+def _is_subtitle_file(filename: str) -> bool:
+    """Check if a file is a subtitle file based on its extension."""
+    return Path(filename).suffix.lower() in SUBTITLE_EXTS
+
+
+def parse_subtitle_file(file_path: Path) -> Dict[str, List[str]]:
+    """Parse a subtitle file and extract text content organized by timestamps.
+
+    Args:
+        file_path: Path to the subtitle file
+
+    Returns:
+        Dictionary with 'text' (list of subtitle texts) and 'timestamps' (list of timestamps)
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        ext = file_path.suffix.lower()
+
+        if ext == '.srt':
+            return _parse_srt(content)
+        elif ext == '.vtt':
+            return _parse_vtt(content)
+        elif ext in {'.ass', '.ssa'}:
+            return _parse_ass(content)
+        elif ext == '.sub':
+            return _parse_sub(content)
+        else:
+            # Fallback: try to extract text lines
+            return _parse_generic_subtitle(content)
+
+    except Exception:
+        return {"text": [], "timestamps": []}
+
+
+def _parse_srt(content: str) -> Dict[str, List[str]]:
+    """Parse SRT subtitle format."""
+    import re
+
+    text_lines = []
+    timestamps = []
+
+    # Split into subtitle blocks
+    blocks = re.split(r'\n\s*\n', content.strip())
+
+    for block in blocks:
+        lines = block.strip().split('\n')
+        if len(lines) >= 3:
+            # Extract timestamp line (format: 00:00:01,000 --> 00:00:04,000)
+            timestamp_match = re.search(r'(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})', lines[1])
+            if timestamp_match:
+                start_time = timestamp_match.group(1)
+                timestamps.append(start_time)
+
+                # Extract text (everything after timestamp line)
+                text = '\n'.join(lines[2:]).strip()
+                # Remove HTML tags if present
+                text = re.sub(r'<[^>]+>', '', text)
+                if text:
+                    text_lines.append(text)
+
+    return {"text": text_lines, "timestamps": timestamps}
+
+
+def _parse_vtt(content: str) -> Dict[str, List[str]]:
+    """Parse WebVTT subtitle format."""
+    import re
+
+    text_lines = []
+    timestamps = []
+
+    lines = content.split('\n')
+    i = 0
+
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # Skip WEBVTT header and empty lines
+        if line in ['WEBVTT', ''] or line.startswith('NOTE'):
+            i += 1
+            continue
+
+        # Check for timestamp line (format: 00:00:01.000 --> 00:00:04.000)
+        timestamp_match = re.search(r'(\d{2}:\d{2}:\d{2}\.\d{3}) --> (\d{2}:\d{2}:\d{2}\.\d{3})', line)
+        if timestamp_match:
+            start_time = timestamp_match.group(1)
+            timestamps.append(start_time)
+
+            # Collect text until next timestamp or end
+            i += 1
+            text_parts = []
+            while i < len(lines) and not re.search(r'\d{2}:\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}:\d{2}\.\d{3}', lines[i].strip()) and lines[i].strip():
+                text_parts.append(lines[i].strip())
+                i += 1
+
+            text = ' '.join(text_parts).strip()
+            if text:
+                text_lines.append(text)
+        else:
+            i += 1
+
+    return {"text": text_lines, "timestamps": timestamps}
+
+
+def _parse_ass(content: str) -> Dict[str, List[str]]:
+    """Parse ASS/SSA subtitle format."""
+    import re
+
+    text_lines = []
+    timestamps = []
+
+    lines = content.split('\n')
+
+    for line in lines:
+        line = line.strip()
+        if line.startswith('Dialogue:'):
+            # Format: Dialogue: 0,0:00:01.00,0:00:04.00,...
+            parts = line.split(',', 9)
+            if len(parts) >= 10:
+                start_time = parts[1]
+                timestamps.append(start_time)
+
+                text = parts[9].strip()
+                # Remove ASS formatting tags
+                text = re.sub(r'\{[^}]+\}', '', text)
+                if text:
+                    text_lines.append(text)
+
+    return {"text": text_lines, "timestamps": timestamps}
+
+
+def _parse_sub(content: str) -> Dict[str, List[str]]:
+    """Parse basic SUB subtitle format."""
+    text_lines = []
+    timestamps = []
+
+    lines = content.split('\n')
+
+    for line in lines:
+        line = line.strip()
+        if line and not line.replace(':', '').replace('.', '').replace(' ', '').isdigit():
+            # Assume non-numeric lines are text
+            text_lines.append(line)
+            timestamps.append("")  # No timestamps in basic SUB format
+
+    return {"text": text_lines, "timestamps": timestamps}
+
+
+def _parse_generic_subtitle(content: str) -> Dict[str, List[str]]:
+    """Fallback parser for unknown subtitle formats."""
+    import re
+
+    lines = content.split('\n')
+    text_lines = []
+    timestamps = []
+
+    for line in lines:
+        line = line.strip()
+        if line and not re.match(r'^\d+$', line):  # Skip pure numbers (likely indices)
+            text_lines.append(line)
+            timestamps.append("")
+
+    return {"text": text_lines, "timestamps": timestamps}
 
 
 def _thumb_sort_key(filename: str) -> int:
