@@ -306,9 +306,9 @@ _INDEX_HTML = """<!DOCTYPE html>
     .container.list { display:block; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: transform .18s ease, box-shadow .18s ease, border-color .2s; box-shadow: 0 2px 10px rgba(0,0,0,0.25); }
   .card:hover { transform: translateY(-2px); border-color:#334155; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
-  .media { position: relative; display:block; padding:0; border:0; background:transparent; cursor:pointer; }
+  .media { position: relative; display:block; padding:0; border:0; background:transparent; cursor:pointer; overflow: hidden; }
   .thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #0f172a; display:block; }
-  .motion-thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #0f172a; display:block; position: absolute; top: 0; left: 0; }
+  .motion-thumb { width: 100%; height: 100%; object-fit: cover; background: #0f172a; position: absolute; top: 0; left: 0; opacity: 0; pointer-events: none; }
   .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.35) 100%); opacity: 0; transition: opacity .2s; }
   .media:hover .play { opacity: 1; }
   .play-icon { width: 56px; height:56px; border-radius: 999px; background: rgba(0,0,0,0.55); border:1px solid rgba(255,255,255,0.15); display:grid; place-items:center; }
@@ -425,25 +425,19 @@ _INDEX_HTML = """<!DOCTYPE html>
             motionVideo.muted = true;
             motionVideo.loop = true;
             motionVideo.preload = 'none';
-            motionVideo.style.display = 'none';
-            motionVideo.style.width = '100%';
-            motionVideo.style.height = '100%';
-            motionVideo.style.objectFit = 'cover';
             media.appendChild(motionVideo);
 
             media.addEventListener('mouseenter', () => {
-              img.style.display = 'none';
-              motionVideo.style.display = 'block';
+              motionVideo.style.opacity = '1';
               motionVideo.play().catch(() => {
                 // Silently handle play() promise rejection (e.g., autoplay policy)
               });
             });
 
             media.addEventListener('mouseleave', () => {
-              motionVideo.style.display = 'none';
+              motionVideo.style.opacity = '0';
               motionVideo.pause();
               motionVideo.currentTime = 0;
-              img.style.display = 'block';
             });
           }
           if (it.primary_media) {
