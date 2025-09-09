@@ -6,7 +6,7 @@ from typing import Optional
 import click
 
 from .indexer import write_index_files
-from .utils import ensure_dir, detect_media_structure, MediaStructure
+from .utils import ensure_dir, detect_media_structure, MediaStructure, load_config, save_config, merge_config_with_args
 
 
 def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
@@ -27,8 +27,9 @@ def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
 @click.option("--generate-thumbnails", is_flag=True, default=False,
               help="Generate thumbnails for video files")
 @click.option("--generate-motion-thumbnails", is_flag=True, default=False,
-              help="Generate animated motion thumbnails for video files (shows on hover)")
-def cli(input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool):
+              help="Generate animated motion thumbnails for video files")
+@click.pass_context
+def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool):
     """Generate a static index.html and index.json for the given media directory.
 
     Scans the input directory for media files (videos, audio, images) and creates
@@ -40,14 +41,41 @@ def cli(input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], 
     if not input_dir.exists() or not input_dir.is_dir():
         raise click.ClickException(f"Input directory not found: {input_dir}")
 
-    # Resolve output directory
+    # Load existing config
+    config = load_config(input_dir)
+
+    # Determine which arguments were actually provided by the user
+    provided_args = {}
+
+    # Check if options were provided (not just defaults)
+    if ctx.params.get('output_dir') is not None:
+        provided_args['output_dir'] = str(output_dir)
+    if ctx.params.get('html_path') is not None:
+        provided_args['html_path'] = str(html_path)
+    if ctx.params.get('json_path') is not None:
+        provided_args['json_path'] = str(json_path)
+    if generate_thumbnails:
+        provided_args['generate_thumbnails'] = generate_thumbnails
+    if generate_motion_thumbnails:
+        provided_args['generate_motion_thumbnails'] = generate_motion_thumbnails
+
+    # Merge config with provided args (CLI takes precedence)
+    merged_config = merge_config_with_args(config, provided_args)
+
+    # Use merged values
+    output_dir = merged_config.get('output_dir')
+    html_path = merged_config.get('html_path')
+    json_path = merged_config.get('json_path')
+    generate_thumbnails = merged_config.get('generate_thumbnails', False)
+    generate_motion_thumbnails = merged_config.get('generate_motion_thumbnails', False)
+
+    # Convert string paths back to Path objects
     if output_dir:
         output_dir = Path(output_dir).resolve()
         ensure_dir(output_dir)
     else:
         output_dir = input_dir
 
-    # Resolve custom paths relative to output directory
     if html_path:
         html_path = Path(html_path)
         if not html_path.is_absolute():
@@ -70,3 +98,6 @@ def cli(input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], 
     click.echo(f"  HTML: {html_file}")
     click.echo(f"  JSON: {json_file}")
     click.echo(f"\nOpen {html_file} in your browser to view the media library.")
+
+    # Save current configuration for future runs
+    save_config(input_dir, merged_config)

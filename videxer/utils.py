@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional, Any
 from enum import Enum
+import yaml
 
 
 def ensure_dir(path: Path) -> None:
@@ -718,3 +719,67 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
         return False
     except Exception:
         return False
+
+
+def load_config(input_dir: Path) -> Dict[str, Any]:
+    """Load configuration from .videxer/config.yaml if it exists.
+
+    Args:
+        input_dir: The input directory to look for config in
+
+    Returns:
+        Dictionary containing config values, empty dict if no config found
+    """
+    config_path = input_dir / INDEXER_ASSETS_DIR / "config.yaml"
+
+    if not config_path.exists():
+        return {}
+
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            return config if config is not None else {}
+    except Exception:
+        # If config file is corrupted, return empty config
+        return {}
+
+
+def save_config(input_dir: Path, config: Dict[str, Any]) -> None:
+    """Save configuration to .videxer/config.yaml.
+
+    Args:
+        input_dir: The input directory to save config in
+        config: Configuration dictionary to save
+    """
+    config_dir = input_dir / INDEXER_ASSETS_DIR
+    config_path = config_dir / "config.yaml"
+
+    # Ensure the .videxer directory exists
+    ensure_dir(config_dir)
+
+    try:
+        with open(config_path, 'w', encoding='utf-8') as f:
+            yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
+    except Exception:
+        # Silently fail if we can't save config
+        pass
+
+
+def merge_config_with_args(config: Dict[str, Any], cli_args: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge config values with CLI arguments, with CLI taking precedence.
+
+    Args:
+        config: Configuration from config.yaml
+        cli_args: Arguments passed via CLI
+
+    Returns:
+        Merged configuration with CLI args taking precedence
+    """
+    merged = config.copy()
+
+    # CLI args override config values
+    for key, value in cli_args.items():
+        if value is not None:  # Only override if CLI arg was actually provided
+            merged[key] = value
+
+    return merged
