@@ -242,6 +242,32 @@ def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: O
 
     # Write HTML (copy the template)
     html = _INDEX_HTML
+    # Replace old hover code with new hover code
+    old_hover_code = """            // Add hover functionality for motion thumbnails
+            if (motionThumbSrc) {
+              let originalSrc = thumbSrc;
+              let motionSrc = motionThumbSrc;
+              img.addEventListener('mouseenter', () => {
+                img.src = motionSrc;
+              });
+              img.addEventListener('mouseleave', () => {
+                img.src = originalSrc;
+              });
+            }"""
+    new_hover_code = """            // Add hover functionality for motion thumbnails
+            if (motionThumbSrc && thumbSrc) {
+              let originalSrc = thumbSrc;
+              let motionSrc = motionThumbSrc;
+
+              media.addEventListener('mouseenter', () => {
+                img.src = motionSrc;
+              });
+
+              media.addEventListener('mouseleave', () => {
+                img.src = originalSrc;
+              });
+            }"""
+    html = html.replace(old_hover_code, new_hover_code)
     html_path.write_text(html, encoding="utf-8")
 
 
@@ -365,17 +391,6 @@ _INDEX_HTML = """<!DOCTYPE html>
           if (thumbSrc) {
             img.src = thumbSrc;
             img.alt = it.name || it.dir;
-            // Add hover functionality for motion thumbnails
-            if (motionThumbSrc) {
-              let originalSrc = thumbSrc;
-              let motionSrc = motionThumbSrc;
-              img.addEventListener('mouseenter', () => {
-                img.src = motionSrc;
-              });
-              img.addEventListener('mouseleave', () => {
-                img.src = originalSrc;
-              });
-            }
           } else {
             // Placeholder for media without thumbnails
             img.src = 'data:image/svg+xml;base64,' + btoa('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"320\" height=\"180\" fill=\"#1f2937\"/><text x=\"160\" y=\"90\" text-anchor=\"middle\" fill=\"#9ca3af\" font-family=\"system-ui\" font-size=\"14\">' + it.media_type + '</text></svg>');
@@ -386,6 +401,20 @@ _INDEX_HTML = """<!DOCTYPE html>
           overlay.className = 'play';
           overlay.innerHTML = '<div class=\"play-icon\">' + getMediaIcon(it.media_type) + '</div>';
           media.appendChild(overlay);
+
+          // Add hover functionality for motion thumbnails
+          if (motionThumbSrc && thumbSrc) {
+            let originalSrc = thumbSrc;
+            let motionSrc = motionThumbSrc;
+
+            media.addEventListener('mouseenter', () => {
+              img.src = motionSrc;
+            });
+
+            media.addEventListener('mouseleave', () => {
+              img.src = originalSrc;
+            });
+          }
           if (it.primary_media) {
             if (it.media_type === 'image') {
               media.addEventListener('click', () => openImageViewer(it.primary_media, it.name || it.dir));
