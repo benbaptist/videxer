@@ -452,9 +452,14 @@ _INDEX_HTML = """<!DOCTYPE html>
           const sizeEl = document.createElement('span');
           sizeEl.className = 'badge';
           sizeEl.textContent = fmtSize(it.size);
+          const subtitleEl = document.createElement('span');
+          subtitleEl.className = 'badge';
+          subtitleEl.textContent = 'CC';
+          subtitleEl.title = 'Has subtitles';
           if (typeEl.textContent) meta.appendChild(typeEl);
           if (dateEl.textContent) meta.appendChild(dateEl);
           if (sizeEl.textContent) meta.appendChild(sizeEl);
+          if (it.subtitles && it.subtitles.length > 0) meta.appendChild(subtitleEl);
           const row = document.createElement('div');
           row.className = 'row';
           if (it.analytics) { const a = document.createElement('a'); a.href = it.analytics; a.className='btn'; a.textContent='Analytics JSON'; row.appendChild(a); }
