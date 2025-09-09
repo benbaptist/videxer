@@ -226,7 +226,9 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
             assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
             ensure_dir(assets_dir)
             motion_thumb_path = assets_dir / motion_thumb_filename
-            if motion_thumb_path.exists() or generate_motion_thumbnail(file_path, motion_thumb_path):
+            if not motion_thumb_path.exists():
+                generate_motion_thumbnail(file_path, motion_thumb_path)
+            if motion_thumb_path.exists():
                 item["motion_thumb"] = str(motion_thumb_path.relative_to(root))
 
         # Look for associated subtitle files
@@ -335,7 +337,9 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
             assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
             ensure_dir(assets_dir)
             motion_thumb_path = assets_dir / motion_thumb_filename
-            if motion_thumb_path.exists() or generate_motion_thumbnail(primary_file, motion_thumb_path):
+            if not motion_thumb_path.exists():
+                generate_motion_thumbnail(primary_file, motion_thumb_path)
+            if motion_thumb_path.exists():
                 item["motion_thumb"] = str(motion_thumb_path.relative_to(root))
 
         # Add video field for backwards compatibility

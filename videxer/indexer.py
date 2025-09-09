@@ -161,6 +161,8 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
                 processed_item["thumbs"] = item["thumbs"]
             if "thumb_best" in item:
                 processed_item["thumb_best"] = item["thumb_best"]
+            if "motion_thumb" in item:
+                processed_item["motion_thumb"] = item["motion_thumb"]
             if "subtitles" in item:
                 processed_item["subtitles"] = item["subtitles"]
         else:
@@ -179,6 +181,8 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
                 processed_item["thumbs"] = item["thumbs"]
             if "thumb_best" in item:
                 processed_item["thumb_best"] = item["thumb_best"]
+            if "motion_thumb" in item:
+                processed_item["motion_thumb"] = item["motion_thumb"]
             if "video" in item:
                 processed_item["video"] = item["video"]
             if "subtitles" in item:
