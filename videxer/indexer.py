@@ -16,45 +16,40 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp"}
 ALL_MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS | IMAGE_EXTS
 
 
-def _build_search_index(items: List[Dict]) -> Dict:
-    """Build a search index for efficient text and subtitle search.
+def _build_base_search_index(items: List[Dict]) -> Dict:
+  """Build lightweight search index (names, descriptions only)."""
+  search_index = {
+    "name_terms": {},
+    "description_terms": {},
+    "item_map": []
+  }
 
-    Args:
-        items: List of processed media items
+  for idx, item in enumerate(items):
+    item_id = f"{item.get('type', 'unknown')}_{item.get('path', item.get('dir', str(idx)))}"
+    search_index["item_map"].append(item_id)
 
-    Returns:
-        Search index dictionary
-    """
-    search_index = {
-        "subtitle_terms": {},  # term -> [item_indices]
-        "name_terms": {},      # term -> [item_indices]
-        "description_terms": {}, # term -> [item_indices]
-        "item_map": []        # index -> item_id for reverse lookup
-    }
+    name = item.get("name", "").lower()
+    if name:
+      _add_to_search_index(search_index["name_terms"], name, idx)
 
-    for idx, item in enumerate(items):
-        item_id = f"{item.get('type', 'unknown')}_{item.get('path', item.get('dir', str(idx)))}"
-        search_index["item_map"].append(item_id)
+    description = item.get("description") or ""
+    if description:
+      description = str(description).lower()
+      _add_to_search_index(search_index["description_terms"], description, idx)
 
-        # Index name
-        name = item.get("name", "").lower()
-        if name:
-            _add_to_search_index(search_index["name_terms"], name, idx)
+  return search_index
 
-        # Index description
-        description = item.get("description") or ""
-        if description:
-            description = str(description).lower()
-            _add_to_search_index(search_index["description_terms"], description, idx)
 
-        # Index subtitle text
-        if "subtitles" in item:
-            for subtitle in item["subtitles"]:
-                combined_text = subtitle.get("text_combined", "").lower()
-                if combined_text:
-                    _add_to_search_index(search_index["subtitle_terms"], combined_text, idx)
-
-    return search_index
+def _build_subtitle_index(items: List[Dict]) -> Dict:
+  """Build subtitle-only inverted index as a separate artifact."""
+  subtitle_index = {"subtitle_terms": {}}
+  for idx, item in enumerate(items):
+    if "subtitles" in item:
+      for subtitle in item["subtitles"]:
+        combined_text = subtitle.get("text_combined", "").lower()
+        if combined_text:
+          _add_to_search_index(subtitle_index["subtitle_terms"], combined_text, idx)
+  return subtitle_index
 
 
 def _add_to_search_index(index_dict: Dict, text: str, item_idx: int):
@@ -73,38 +68,50 @@ def _add_to_search_index(index_dict: Dict, text: str, item_idx: int):
 
 
 def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> Dict:
-    """Build index data for all media directories and files."""
-    # Detect the structure type
-    structure = detect_media_structure(root)
+  """Build index data for all media directories and files.
 
-    # Collect all media items using the unified approach
-    raw_items = collect_media_items(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
+  Returns a base index; subtitle index is written separately.
+  """
+  # Detect the structure type
+  structure = detect_media_structure(root)
 
-    # Process items to add metadata and ensure consistent structure
-    items = []
-    current_transcodes = set()
-    for item in raw_items:
-        processed_item = _process_media_item(item, root)
-        if processed_item:
-            items.append(processed_item)
-            # Collect transcoded file paths for cleanup
-            if "transcoded" in processed_item:
-                current_transcodes.add(processed_item["transcoded"])
+  # Collect all media items using the unified approach
+  raw_items = collect_media_items(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
 
-    # Clean up old transcoded files if transcoding was requested
-    if generate_transcodes:
-        from .utils import cleanup_old_transcodes
-        cleanup_old_transcodes(root, current_transcodes)
+  # Process items to add metadata and ensure consistent structure
+  items = []
+  current_transcodes = set()
+  for item in raw_items:
+    processed_item = _process_media_item(item, root)
+    if processed_item:
+      items.append(processed_item)
+      # Collect transcoded file paths for cleanup
+      if "transcoded" in processed_item:
+        current_transcodes.add(processed_item["transcoded"])
 
-    # Build search index for efficient subtitle and text search
-    search_index = _build_search_index(items)
+  # Clean up old transcoded files if transcoding was requested
+  if generate_transcodes:
+    from .utils import cleanup_old_transcodes
+    cleanup_old_transcodes(root, current_transcodes)
 
-    return {
-        "items": items,
-        "structure": structure.value,
-        "total_items": len(items),
-        "search_index": search_index
-    }
+  # Build both indexes, then strip bulky subtitle payloads from items
+  base_search_index = _build_base_search_index(items)
+  subtitle_index = _build_subtitle_index(items)
+
+  for it in items:
+    if "subtitles" in it:
+      has = bool(it.get("subtitles"))
+      it.pop("subtitles", None)
+      if has:
+        it["has_subtitles"] = True
+
+  return {
+    "items": items,
+    "structure": structure.value,
+    "total_items": len(items),
+    "search_index": base_search_index,
+    "_subtitle_index": subtitle_index,
+  }
 
 
 def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
@@ -242,19 +249,26 @@ def _extract_metadata_from_filename(filename: str) -> Dict[str, Optional[str]]:
 
 
 def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: Optional[Path] = None, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> None:
-    """Generate index.html and index.json files."""
-    root = Path(root)
-    html_path = html_path or (root / "index.html")
-    json_path = json_path or (root / "index.json")
+  """Generate index.html and index.json files, plus index.subtitles.json for subtitle search."""
+  root = Path(root)
+  html_path = html_path or (root / "index.html")
+  json_path = json_path or (root / "index.json")
 
-    idx = build_index(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
+  idx = build_index(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
 
-    # Write JSON
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(idx, f, ensure_ascii=False, indent=2)
+  # Write JSON (exclude the private subtitle index field)
+  with open(json_path, "w", encoding="utf-8") as f:
+    data = dict(idx)
+    data.pop("_subtitle_index", None)
+    json.dump(data, f, ensure_ascii=False, indent=2)
 
-    # Write HTML (use the template as-is)
-    html_path.write_text(_INDEX_HTML, encoding="utf-8")
+  # Also write a separate subtitles index for lazy loading on the client
+  subs_path = json_path.with_name("index.subtitles.json")
+  with open(subs_path, "w", encoding="utf-8") as f:
+    json.dump(idx.get("_subtitle_index", {"subtitle_terms": {}}), f, ensure_ascii=False, indent=2)
+
+  # Write HTML (use the template as-is)
+  html_path.write_text(_INDEX_HTML, encoding="utf-8")
 
 
 _INDEX_HTML = """<!DOCTYPE html>
@@ -416,6 +430,7 @@ _INDEX_HTML = """<!DOCTYPE html>
   const sortSel = document.getElementById('sort');
   const dirBtn = document.getElementById('direction');
   const viewBtn = document.getElementById('view');
+  const subtitleHint = document.getElementById('subtitleHint');
   let items = data.items || [];
   let searchIndex = data.search_index || { subtitle_terms: {}, name_terms: {}, description_terms: {}, item_map: [] };
   let sortKey = 'date'; // alpha | size | date | type
@@ -516,7 +531,7 @@ _INDEX_HTML = """<!DOCTYPE html>
           if (typeEl.textContent) meta.appendChild(typeEl);
           if (dateEl.textContent) meta.appendChild(dateEl);
           if (sizeEl.textContent) meta.appendChild(sizeEl);
-          if (it.subtitles && it.subtitles.length > 0) meta.appendChild(subtitleEl);
+          if (it.has_subtitles) meta.appendChild(subtitleEl);
           const row = document.createElement('div');
           row.className = 'row';
           if (it.analytics) { const a = document.createElement('a'); a.href = it.analytics; a.className='btn'; a.textContent='Analytics JSON'; row.appendChild(a); }
@@ -558,16 +573,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       return match ? match[1] : '';
     }
 
-    function searchInSubtitles(item, query) {
-      if (!item.subtitles) return false;
-      const q = query.toLowerCase();
-      for (const subtitle of item.subtitles) {
-        if (subtitle.text_combined && subtitle.text_combined.includes(q)) {
-          return true;
-        }
-      }
-      return false;
-    }
+  // Subtitle search is powered by a separate, lazy-loaded index
 
     function apply() {
       const q = search.value.toLowerCase().trim();
@@ -577,6 +583,21 @@ _INDEX_HTML = """<!DOCTYPE html>
         // No search query, show all items
         filtered = items;
       } else {
+        // If subtitle index isn't loaded, fetch it in the background to improve search results
+        if (!searchIndex.subtitle_terms) searchIndex.subtitle_terms = {};
+        if (Object.keys(searchIndex.subtitle_terms).length === 0) {
+          const hintEl = document.getElementById('subtitleHint');
+          if (hintEl) hintEl.textContent = 'Loading subtitle index to improve search…';
+          fetchJSON('index.subtitles.json')
+            .then(subs => {
+              searchIndex.subtitle_terms = subs.subtitle_terms || {};
+              if (hintEl) hintEl.textContent = 'Subtitle search index loaded.';
+              apply();
+            })
+            .catch(() => {
+              if (hintEl) hintEl.textContent = 'Subtitle index failed to load.';
+            });
+        }
         // Use search index for efficient filtering if available
         if (searchIndex.item_map && searchIndex.item_map.length > 0) {
           const matchingIndices = new Set();
@@ -595,16 +616,18 @@ _INDEX_HTML = """<!DOCTYPE html>
             }
           }
 
-          // Search in subtitles
-          for (const term in searchIndex.subtitle_terms) {
-            if (term.includes(q)) {
-              searchIndex.subtitle_terms[term].forEach(idx => matchingIndices.add(idx));
+          // Search in subtitles (if terms have been loaded)
+          if (searchIndex.subtitle_terms) {
+            for (const term in searchIndex.subtitle_terms) {
+              if (term.includes(q)) {
+                searchIndex.subtitle_terms[term].forEach(idx => matchingIndices.add(idx));
+              }
             }
           }
 
           filtered = Array.from(matchingIndices).map(idx => items[idx]).filter(Boolean);
         } else {
-          // Fallback to direct search if no index available
+          // Fallback to direct search if no index available (metadata only)
           filtered = items.filter(it => {
             const name = (it.name || '').toLowerCase();
             const dir = (it.dir || '').toLowerCase();
@@ -616,8 +639,7 @@ _INDEX_HTML = """<!DOCTYPE html>
                    dir.includes(q) ||
                    videoId.includes(q) ||
                    type.includes(q) ||
-                   description.includes(q) ||
-                   searchInSubtitles(it, q);
+                   description.includes(q);
           });
         }
       }
@@ -714,10 +736,10 @@ _INDEX_HTML = """<!DOCTYPE html>
         const dateEl = document.createElement('span'); dateEl.className = 'badge'; dateEl.textContent = fmtDate(item.created_time);
         const sizeEl = document.createElement('span'); sizeEl.className = 'badge'; sizeEl.textContent = fmtSize(item.size);
         const subtitleEl = document.createElement('span'); subtitleEl.className = 'badge'; subtitleEl.textContent = 'CC'; subtitleEl.title = 'Has subtitles';
-        if (typeEl.textContent) meta.appendChild(typeEl);
-        if (dateEl.textContent) meta.appendChild(dateEl);
-        if (sizeEl.textContent) meta.appendChild(sizeEl);
-        if (item.subtitles && item.subtitles.length > 0) meta.appendChild(subtitleEl);
+  if (typeEl.textContent) meta.appendChild(typeEl);
+  if (dateEl.textContent) meta.appendChild(dateEl);
+  if (sizeEl.textContent) meta.appendChild(sizeEl);
+  if (item.has_subtitles) meta.appendChild(subtitleEl);
 
         const links = document.createElement('div');
         links.className = 'row';
@@ -791,8 +813,8 @@ _INDEX_HTML = """<!DOCTYPE html>
       </div>
       <div class="controls">
         <label for="search" class="visually-hidden">Search</label>
-        <input id="search" class="input" placeholder="Search media, subtitles, descriptions..." />
-        <div class="hint">Search includes video subtitles when available</div>
+  <input id="search" class="input" placeholder="Search media, subtitles, descriptions..." />
+  <div id="subtitleHint" class="hint">Subtitle search will auto-load on first search.</div>
         <div class="row">
           <label for="sort" class="visually-hidden">Sort by</label>
           <select id="sort" class="select">
