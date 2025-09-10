@@ -145,8 +145,15 @@ def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_
     Returns:
         List of media item dictionaries with unified structure
     """
+    log = get_logger()
     items = []
     structure = detect_media_structure(root)
+
+    # Preflight validation of existing transcodes to detect corruption
+    if generate_transcodes:
+        removed = validate_and_purge_bad_transcodes(root)
+        if removed:
+            log.info(f"Preflight: removed {removed} invalid transcode(s)")
 
     # Handle flat files in root directory
     if structure in [MediaStructure.FLAT, MediaStructure.MIXED]:
@@ -255,7 +262,9 @@ def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
     Returns:
         True if transcoding was successful, False otherwise
     """
+    log = get_logger()
     try:
+        log.info(f"Transcoding start: {input_path} -> {output_path}")
         # Web-optimized settings: low resolution, low bitrate, fast encoding
         stream = ffmpeg.input(str(input_path))
         stream = ffmpeg.output(
@@ -264,16 +273,22 @@ def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
             vcodec='libx264',  # H.264 for broad compatibility
             acodec='aac',      # AAC for audio
             preset='fast',     # Fast encoding
-            crf=28,           # Higher CRF = lower quality, smaller file
+            crf=28,            # Higher CRF = lower quality, smaller file
             vf='scale=-2:720', # Scale to 720p height, maintain aspect ratio
-            maxrate='2M',     # Maximum bitrate 2Mbps
-            bufsize='4M',     # Buffer size
+            maxrate='2M',      # Maximum bitrate 2Mbps
+            bufsize='4M',      # Buffer size
             audio_bitrate='128k',  # Low audio bitrate
             movflags='faststart'    # Enable fast start for web playback
         )
         ffmpeg.run(stream, overwrite_output=True, quiet=True)
-        return output_path.exists()
-    except Exception:
+        ok = output_path.exists()
+        if ok:
+            log.info(f"Transcoding success: {output_path}")
+        else:
+            log.error(f"Transcoding failed to produce file: {output_path}")
+        return ok
+    except Exception as e:
+        log.error(f"Transcoding error for {input_path}: {e}")
         return False
 
 
@@ -296,6 +311,49 @@ def cleanup_old_transcodes(root: Path, current_transcodes: Set[str]) -> None:
                     transcode_file.unlink()
                 except Exception:
                     pass  # Ignore cleanup errors
+
+
+def validate_transcode_file(path: Path) -> bool:
+    """Validate a transcode file by probing with ffprobe.
+
+    Returns True if file is valid (has video stream and is readable), else False.
+    """
+    try:
+        info = ffmpeg.probe(str(path))
+        streams = info.get('streams', [])
+        has_video = any(s.get('codec_type') == 'video' for s in streams)
+        return bool(has_video)
+    except Exception:
+        return False
+
+
+def validate_and_purge_bad_transcodes(root: Path) -> int:
+    """Validate all existing transcodes and delete any that are invalid.
+
+    Returns the number of removed (invalid) transcodes.
+    """
+    log = get_logger()
+    transcode_dir = root / INDEXER_ASSETS_DIR / "transcodes"
+    if not transcode_dir.exists():
+        return 0
+    removed = 0
+    for f in sorted(transcode_dir.iterdir()):
+        if not f.is_file():
+            continue
+        if f.suffix.lower() != ".mp4":
+            continue
+        if not validate_transcode_file(f):
+            try:
+                f.unlink()
+                removed += 1
+                log.warning(f"Removed invalid/corrupted transcode: {f}")
+            except Exception:
+                log.error(f"Failed to remove invalid transcode: {f}")
+    if removed:
+        log.info(f"Purged {removed} invalid transcode(s) before processing")
+    else:
+        log.debug("All existing transcodes validated OK")
+    return removed
 
 
 def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> Dict:
@@ -356,8 +414,21 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
             assets_dir = root / INDEXER_ASSETS_DIR / "transcodes"
             ensure_dir(assets_dir)
             transcode_path = assets_dir / transcode_filename
+            log = get_logger()
+            if transcode_path.exists():
+                # Validate existing transcode; if bad, remove so it gets regenerated
+                if not validate_transcode_file(transcode_path):
+                    log.warning(f"Invalid transcode detected, will regenerate: {transcode_path}")
+                    try:
+                        transcode_path.unlink()
+                    except Exception:
+                        log.error(f"Failed to delete invalid transcode: {transcode_path}")
+                else:
+                    log.debug(f"Using existing valid transcode: {transcode_path}")
             if not transcode_path.exists():
-                generate_video_transcode(file_path, transcode_path)
+                ok = generate_video_transcode(file_path, transcode_path)
+                if not ok:
+                    log.error(f"Transcoding failed for: {file_path}")
             if transcode_path.exists():
                 item["transcoded"] = str(transcode_path.relative_to(root))
 
@@ -478,8 +549,20 @@ def _collect_directory_items(dir_path: Path, root: Path, generate_thumbnails: bo
             assets_dir = root / INDEXER_ASSETS_DIR / "transcodes"
             ensure_dir(assets_dir)
             transcode_path = assets_dir / transcode_filename
+            log = get_logger()
+            if transcode_path.exists():
+                if not validate_transcode_file(transcode_path):
+                    log.warning(f"Invalid transcode detected, will regenerate: {transcode_path}")
+                    try:
+                        transcode_path.unlink()
+                    except Exception:
+                        log.error(f"Failed to delete invalid transcode: {transcode_path}")
+                else:
+                    log.debug(f"Using existing valid transcode: {transcode_path}")
             if not transcode_path.exists():
-                generate_video_transcode(primary_file, transcode_path)
+                ok = generate_video_transcode(primary_file, transcode_path)
+                if not ok:
+                    log.error(f"Transcoding failed for: {primary_file}")
             if transcode_path.exists():
                 item["transcoded"] = str(transcode_path.relative_to(root))
 
