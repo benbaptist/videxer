@@ -253,35 +253,8 @@ def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: O
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(idx, f, ensure_ascii=False, indent=2)
 
-    # Write HTML (copy the template)
-    html = _INDEX_HTML
-    # Replace old hover code with new hover code
-    old_hover_code = """            // Add hover functionality for motion thumbnails
-            if (motionThumbSrc) {
-              let originalSrc = thumbSrc;
-              let motionSrc = motionThumbSrc;
-              img.addEventListener('mouseenter', () => {
-                img.src = motionSrc;
-              });
-              img.addEventListener('mouseleave', () => {
-                img.src = originalSrc;
-              });
-            }"""
-    new_hover_code = """            // Add hover functionality for motion thumbnails
-            if (motionThumbSrc && thumbSrc) {
-              let originalSrc = thumbSrc;
-              let motionSrc = motionThumbSrc;
-
-              media.addEventListener('mouseenter', () => {
-                img.src = motionSrc;
-              });
-
-              media.addEventListener('mouseleave', () => {
-                img.src = originalSrc;
-              });
-            }"""
-    html = html.replace(old_hover_code, new_hover_code)
-    html_path.write_text(html, encoding="utf-8")
+    # Write HTML (use the template as-is)
+    html_path.write_text(_INDEX_HTML, encoding="utf-8")
 
 
 _INDEX_HTML = """<!DOCTYPE html>
@@ -291,24 +264,63 @@ _INDEX_HTML = """<!DOCTYPE html>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>Media Library Index</title>
   <style>
-  :root { color-scheme: dark; --bg:#0b0c10; --panel:#0f172a; --card:#111827; --border:#1f2937; --muted:#9ca3af; --text:#e5e7eb; --accent:#60a5fa; }
+  :root { color-scheme: light dark; }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:#f6f7fb; --panel:#ffffff; --nav:#ffffff; --card:#ffffff; --border:#e5e7eb; --muted:#6b7280; --text:#0f172a; --accent:#2563eb; --shadow: rgba(0,0,0,0.06);
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0b0c10; --panel:#0f172a; --nav:#0f172a; --card:#111827; --border:#1f2937; --muted:#9aa3b2; --text:#e5e7eb; --accent:#60a5fa; --shadow: rgba(0,0,0,0.35);
+    }
+  }
+
   * { box-sizing: border-box; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 0; background: linear-gradient(180deg, var(--bg) 0%, #0a0f1f 100%); color: var(--text); }
-  header { padding: 14px 20px; background: rgba(17,24,39,0.85); position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--border); backdrop-filter: blur(6px); }
-  main { max-width: 1400px; margin: 0 auto; }
-  h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
-  .toolbar { display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap: wrap; }
-  .input, .select, .btn { padding:9px 12px; font-size:12px; border:1px solid var(--border); border-radius:8px; background: var(--panel); color: var(--text); }
+  html, body { height: 100%; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+
+  .app { min-height: 100vh; display: grid; }
+  /* Landscape: left sidebar */
+  @media (orientation: landscape) {
+    .app { grid-template-columns: 290px 1fr; }
+    nav.nav { position: sticky; top: 0; height: 100vh; border-right: 1px solid var(--border); }
+  }
+  /* Portrait: top bar */
+  @media (orientation: portrait) {
+    .app { grid-template-rows: auto 1fr; }
+    nav.nav { position: sticky; top: 0; width: 100%; border-bottom: 1px solid var(--border); }
+  }
+
+  nav.nav { background: var(--nav); padding: 14px 16px; z-index: 10; }
+  .brand { display:flex; align-items:center; gap:10px; margin-bottom: 12px; }
+  .brand-title { font-weight: 700; letter-spacing: .2px; font-size: 16px; }
+  .controls { display: grid; gap: 10px; }
+  .controls .row { display:flex; gap:8px; flex-wrap: wrap; }
+
+  /* In portrait, align brand/controls horizontally when there's space */
+  @media (orientation: portrait) {
+    nav.nav { display: grid; grid-template-columns: 1fr; grid-auto-rows: min-content; gap: 8px; }
+    .brand { margin: 0; }
+  }
+
+  .main { min-width: 0; }
+  .container { padding: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; max-width: 1600px; margin: 0 auto; }
+  .container.list { display:block; }
+
+  .input, .select, .btn { padding:10px 12px; font-size:14px; border:1px solid var(--border); border-radius:10px; background: var(--panel); color: var(--text); }
   .select { background: var(--panel); }
   .btn { cursor:pointer; user-select:none; text-decoration:none; transition: border-color .2s, background .2s; }
-  .btn:hover { border-color:#334155; background:#0b1222; }
-  .container { padding: 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
-    .container.list { display:block; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: transform .18s ease, box-shadow .18s ease, border-color .2s; box-shadow: 0 2px 10px rgba(0,0,0,0.25); }
-  .card:hover { transform: translateY(-2px); border-color:#334155; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+  .btn:hover { border-color: color-mix(in oklab, var(--border), var(--accent) 35%); background: color-mix(in oklab, var(--panel), var(--accent) 8%); }
+  .hint { font-size: 12px; color: var(--muted); margin-left: 2px; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: border-color .18s ease; box-shadow: 0 1px 4px var(--shadow); }
+  /* Remove lift/translate hover animation */
+  .card:hover { border-color: color-mix(in oklab, var(--border), var(--accent) 35%); }
+
   .media { position: relative; display:block; padding:0; border:0; background:transparent; cursor:pointer; overflow: hidden; }
   .thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #0f172a; display:block; }
-  .motion-thumb { width: 100%; height: 100%; object-fit: cover; background: #0f172a; position: absolute; top: 0; left: 0; opacity: 0; pointer-events: none; }
+  .motion-thumb { width: 100%; height: 100%; object-fit: cover; background: #0f172a; position: absolute; top: 0; left: 0; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
   .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.35) 100%); opacity: 0; transition: opacity .2s; }
   .media:hover .play { opacity: 1; }
   .play-icon { width: 56px; height:56px; border-radius: 999px; background: rgba(0,0,0,0.55); border:1px solid rgba(255,255,255,0.15); display:grid; place-items:center; }
@@ -319,23 +331,26 @@ _INDEX_HTML = """<!DOCTYPE html>
   .title button:hover { text-decoration: underline; }
   .meta { font-size: 12px; color: var(--muted); display:flex; gap:8px; flex-wrap: wrap; }
   .badge { border:1px solid var(--border); background: var(--panel); border-radius: 999px; padding: 2px 8px; }
-  .row { display:flex; gap:8px; flex-wrap: wrap; }
   .row .btn { background: transparent; }
   .container.list .card { display:flex; flex-direction: row; align-items: stretch; }
   .container.list .media { width: 240px; min-width:240px; }
   .container.list .thumb { width: 100%; height: 100%; aspect-ratio: unset; object-fit: cover; }
   .container.list .content { flex: 1; }
 
-    /* Modal media player */
+  /* Accessibility helpers */
+  .visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .input:focus, .select:focus, .btn:focus { outline: 2px solid color-mix(in oklab, var(--accent), transparent 40%); outline-offset: 2px; }
+
+  /* Modal media player */
   .modal { position: fixed; inset: 0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,0.7); z-index: 50; }
-    .modal.open { display:flex; }
+  .modal.open { display:flex; }
   .modal-dialog { width: min(90vw, 1200px); background:var(--card); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
   .modal-header { display:flex; justify-content: space-between; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); }
-    .modal-title { font-size:14px; font-weight:600; }
+  .modal-title { font-size:14px; font-weight:600; }
   .modal-close { background:transparent; border:0; color:var(--text); font-size:16px; cursor:pointer; }
   .modal-body { background:var(--bg); }
-    video, audio { display:block; width:100%; height:auto; background:#000; }
-    img.modal-image { display:block; max-width:100%; max-height:80vh; margin:0 auto; }
+  video, audio { display:block; width:100%; height:auto; background:#000; }
+  img.modal-image { display:block; max-width:100%; max-height:80vh; margin:0 auto; }
   </style>
   <script>
     async function fetchJSON(path) {
@@ -344,7 +359,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       return res.json();
     }
 
-    function fmtDate(s) {
+  function fmtDate(s) {
       if (!s) return '';
       try { return new Date(s).toLocaleString(); } catch { return s; }
     }
@@ -376,11 +391,11 @@ _INDEX_HTML = """<!DOCTYPE html>
 
     async function load() {
       const data = await fetchJSON('index.json');
-      const container = document.querySelector('.container');
-      const search = document.getElementById('search');
-      const sortSel = document.getElementById('sort');
-      const dirBtn = document.getElementById('direction');
-      const viewBtn = document.getElementById('view');
+  const container = document.querySelector('.container');
+  const search = document.getElementById('search');
+  const sortSel = document.getElementById('sort');
+  const dirBtn = document.getElementById('direction');
+  const viewBtn = document.getElementById('view');
   let items = data.items || [];
   let searchIndex = data.search_index || { subtitle_terms: {}, name_terms: {}, description_terms: {}, item_map: [] };
   let sortKey = 'date'; // alpha | size | date | type
@@ -416,9 +431,8 @@ _INDEX_HTML = """<!DOCTYPE html>
           overlay.innerHTML = '<div class=\"play-icon\">' + getMediaIcon(it.media_type) + '</div>';
           media.appendChild(overlay);
 
-          // Add hover functionality for motion thumbnails
+          // Motion thumbnail preview on hover (no lift animation)
           if (motionThumbSrc && thumbSrc) {
-            // Create video element for motion thumbnail
             const motionVideo = document.createElement('video');
             motionVideo.className = 'motion-thumb';
             motionVideo.src = motionThumbSrc;
@@ -429,9 +443,7 @@ _INDEX_HTML = """<!DOCTYPE html>
 
             media.addEventListener('mouseenter', () => {
               motionVideo.style.opacity = '1';
-              motionVideo.play().catch(() => {
-                // Silently handle play() promise rejection (e.g., autoplay policy)
-              });
+              motionVideo.play().catch(() => {});
             });
 
             media.addEventListener('mouseleave', () => {
@@ -664,24 +676,32 @@ _INDEX_HTML = """<!DOCTYPE html>
   </script>
 </head>
 <body>
-  <header>
-    <h1>Media Library Index</h1>
-    <div class="toolbar">
-      <div style="display: flex; flex-direction: column; gap: 4px;">
-        <input id="search" class="input" placeholder="Search media, subtitles, descriptions..." />
-        <div style="font-size: 11px; color: var(--muted); margin-left: 2px;">Search includes video subtitles when available</div>
+  <div class="app">
+    <nav class="nav" aria-label="Library controls">
+      <div class="brand">
+        <span class="brand-title">Media Library</span>
       </div>
-      <select id="sort" class="select">
-        <option value="date" selected>Date</option>
-        <option value="alpha">Alphabetical</option>
-        <option value="size">Size</option>
-        <option value="type">Type</option>
-      </select>
-      <button id="direction" class="btn">Descending</button>
-      <button id="view" class="btn">Grid</button>
-    </div>
-  </header>
-  <div class="container"></div>
+      <div class="controls">
+        <label for="search" class="visually-hidden">Search</label>
+        <input id="search" class="input" placeholder="Search media, subtitles, descriptions..." />
+        <div class="hint">Search includes video subtitles when available</div>
+        <div class="row">
+          <label for="sort" class="visually-hidden">Sort by</label>
+          <select id="sort" class="select">
+            <option value="date" selected>Date</option>
+            <option value="alpha">Alphabetical</option>
+            <option value="size">Size</option>
+            <option value="type">Type</option>
+          </select>
+          <button id="direction" class="btn" aria-pressed="false">Descending</button>
+          <button id="view" class="btn" aria-pressed="false">Grid</button>
+        </div>
+      </div>
+    </nav>
+    <main class="main" role="main">
+      <div class="container"></div>
+    </main>
+  </div>
 
   <!-- Modal media player/viewer -->
   <div id="playerModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="playerTitle">
