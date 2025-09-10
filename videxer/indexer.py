@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime
 
-from .utils import collect_media_items, detect_media_structure, MediaStructure, generate_video_thumbnail
+from .utils import collect_media_items, detect_media_structure, MediaStructure, generate_video_thumbnail, get_logger
 
 
 # Extended media extensions
@@ -72,11 +72,14 @@ def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_t
 
   Returns a base index; subtitle index is written separately.
   """
+  log = get_logger()
   # Detect the structure type
   structure = detect_media_structure(root)
+  log.debug(f"Building index for {root} (structure={structure.value}, thumbs={generate_thumbnails}, motion={generate_motion_thumbnails}, transcodes={generate_transcodes})")
 
   # Collect all media items using the unified approach
   raw_items = collect_media_items(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
+  log.debug(f"Collected raw items: {len(raw_items)}")
 
   # Process items to add metadata and ensure consistent structure
   items = []
@@ -93,6 +96,7 @@ def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_t
   if generate_transcodes:
     from .utils import cleanup_old_transcodes
     cleanup_old_transcodes(root, current_transcodes)
+    log.debug("Cleaned up old transcodes (if any)")
 
   # Build both indexes, then strip bulky subtitle payloads from items
   base_search_index = _build_base_search_index(items)
@@ -104,6 +108,7 @@ def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_t
       it.pop("subtitles", None)
       if has:
         it["has_subtitles"] = True
+  log.info(f"Indexed items: {len(items)} (with subtitles indexed separately)")
 
   return {
     "items": items,
@@ -253,6 +258,7 @@ def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: O
   root = Path(root)
   html_path = html_path or (root / "index.html")
   json_path = json_path or (root / "index.json")
+  log = get_logger()
 
   idx = build_index(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
 
@@ -261,14 +267,17 @@ def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: O
     data = dict(idx)
     data.pop("_subtitle_index", None)
     json.dump(data, f, ensure_ascii=False, indent=2)
+  log.debug(f"Wrote JSON index: {json_path}")
 
   # Also write a separate subtitles index for lazy loading on the client
   subs_path = json_path.with_name("index.subtitles.json")
   with open(subs_path, "w", encoding="utf-8") as f:
     json.dump(idx.get("_subtitle_index", {"subtitle_terms": {}}), f, ensure_ascii=False, indent=2)
+  log.debug(f"Wrote subtitles index: {subs_path}")
 
   # Write HTML (use the template as-is)
   html_path.write_text(_INDEX_HTML, encoding="utf-8")
+  log.debug(f"Wrote HTML index: {html_path}")
 
 
 _INDEX_HTML = """<!DOCTYPE html>

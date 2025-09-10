@@ -5,6 +5,8 @@ from typing import Dict, List, Set, Optional, Any
 from enum import Enum
 import yaml
 import ffmpeg
+import logging
+import sys
 
 
 def ensure_dir(path: Path) -> None:
@@ -68,6 +70,68 @@ def detect_media_structure(root: Path) -> MediaStructure:
     else:
         # Default to nested for empty directories
         return MediaStructure.NESTED
+
+
+# -----------------------------
+# Logging utilities
+# -----------------------------
+
+_LOGGER_NAME = "videxer"
+
+
+def _parse_log_level(level: str) -> int:
+    mapping = {
+        "CRITICAL": logging.CRITICAL,
+        "ERROR": logging.ERROR,
+        "WARN": logging.WARNING,
+        "WARNING": logging.WARNING,
+        "INFO": logging.INFO,
+        "DEBUG": logging.DEBUG,
+        "NOTSET": logging.NOTSET,
+    }
+    return mapping.get(str(level).upper(), logging.INFO)
+
+
+def setup_logging(output_dir: Path, level: str = "INFO") -> logging.Logger:
+    """Initialize videxer logger to stdout and a file in the target dir.
+
+    - File logs go to <output_dir>/.videxer/videxer.log
+    - Stream logs go to stdout
+    - File handler captures DEBUG+; stream uses the configured level
+    """
+    ensure_dir(output_dir)
+    log_dir = output_dir / INDEXER_ASSETS_DIR
+    ensure_dir(log_dir)
+    log_file = log_dir / "videxer.log"
+
+    logger = logging.getLogger(_LOGGER_NAME)
+    logger.setLevel(logging.DEBUG)  # capture all; handlers filter
+    logger.propagate = False
+
+    # Avoid duplicate handlers if setup is called multiple times
+    if logger.handlers:
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+
+    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+
+    fh = logging.FileHandler(str(log_file), encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setLevel(_parse_log_level(level))
+    sh.setFormatter(fmt)
+    logger.addHandler(sh)
+
+    logger.debug(f"Logging initialized. File: {log_file}, level: {level}")
+    return logger
+
+
+def get_logger() -> logging.Logger:
+    """Get the shared videxer logger."""
+    return logging.getLogger(_LOGGER_NAME)
 
 
 def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> List[Dict]:

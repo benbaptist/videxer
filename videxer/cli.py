@@ -6,7 +6,7 @@ from typing import Optional
 import click
 
 from .indexer import write_index_files
-from .utils import ensure_dir, detect_media_structure, MediaStructure, load_config, save_config, merge_config_with_args
+from .utils import ensure_dir, detect_media_structure, MediaStructure, load_config, save_config, merge_config_with_args, setup_logging, get_logger
 
 
 def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
@@ -30,8 +30,10 @@ def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
               help="Generate animated motion thumbnails for video files")
 @click.option("--generate-transcodes", is_flag=True, default=False,
               help="Generate web-optimized transcoded versions of videos")
+@click.option("--log-level", type=click.Choice(["CRITICAL","ERROR","WARNING","INFO","DEBUG"], case_sensitive=False), default="INFO",
+              help="Log level for console output; file always logs at DEBUG")
 @click.pass_context
-def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool, generate_transcodes: bool):
+def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool, generate_transcodes: bool, log_level: str):
     """Generate a static index.html and index.json for the given media directory.
 
     Scans the input directory for media files (videos, audio, images) and creates
@@ -62,6 +64,8 @@ def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Pa
         provided_args['generate_motion_thumbnails'] = generate_motion_thumbnails
     if generate_transcodes:
         provided_args['generate_transcodes'] = generate_transcodes
+    if ctx.params.get('log_level') is not None:
+        provided_args['log_level'] = log_level
 
     # Merge config with provided args (CLI takes precedence)
     merged_config = merge_config_with_args(config, provided_args)
@@ -73,6 +77,7 @@ def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Pa
     generate_thumbnails = merged_config.get('generate_thumbnails', False)
     generate_motion_thumbnails = merged_config.get('generate_motion_thumbnails', False)
     generate_transcodes = merged_config.get('generate_transcodes', False)
+    log_level = merged_config.get('log_level', log_level)
 
     # Convert string paths back to Path objects
     if output_dir:
@@ -90,19 +95,23 @@ def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Pa
         if not json_path.is_absolute():
             json_path = output_dir / json_path
 
-    click.echo(f"Scanning media directory: {input_dir}")
+    # Setup logging to output dir and stdout
+    setup_logging(output_dir, level=log_level)
+    logger = get_logger()
+
+    logger.info(f"Scanning media directory: {input_dir}")
     structure = detect_media_structure(input_dir)
-    click.echo(f"Detected structure: {structure.value}")
+    logger.info(f"Detected structure: {structure.value}")
 
     write_index_files(input_dir, html_path, json_path, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
 
     html_file = html_path or (output_dir / "index.html")
     json_file = json_path or (output_dir / "index.json")
 
-    click.echo(f"Generated files:")
-    click.echo(f"  HTML: {html_file}")
-    click.echo(f"  JSON: {json_file}")
-    click.echo(f"\nOpen {html_file} in your browser to view the media library.")
+    logger.info("Generated files:")
+    logger.info(f"  HTML: {html_file}")
+    logger.info(f"  JSON: {json_file}")
+    logger.info(f"Open {html_file} in your browser to view the media library.")
 
     # Save current configuration for future runs
     save_config(input_dir, merged_config)
