@@ -351,6 +351,26 @@ _INDEX_HTML = """<!DOCTYPE html>
   .modal-body { background:var(--bg); }
   video, audio { display:block; width:100%; height:auto; background:#000; }
   img.modal-image { display:block; max-width:100%; max-height:80vh; margin:0 auto; }
+
+  /* Immersive mobile player */
+  :root { --immersive-header-h: 48px; }
+  body.immersive-open { overflow: hidden; }
+  .immersive { position: fixed; inset: 0; z-index: 60; display: none; background: var(--bg); color: var(--text); }
+  .immersive.open { display: block; }
+  .immersive-header { position: fixed; top: 0; left: 0; right: 0; height: var(--immersive-header-h); display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--nav); border-bottom: 1px solid var(--border); }
+  .immersive-title { font-size: 14px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .immersive-close { background: transparent; border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 6px 10px; cursor: pointer; }
+  .immersive-media { position: relative; width: 100vw; margin-top: var(--immersive-header-h); background: #000; height: min(56vh, calc(100vw * 9 / 16)); }
+  .immersive-media > video, .immersive-media > img { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  .immersive-info { position: absolute; top: calc(var(--immersive-header-h) + min(56vh, calc(100vw * 9 / 16))); bottom: 0; left: 0; right: 0; overflow: auto; padding: 12px; }
+  .immersive .meta { margin-top: 6px; }
+  .immersive .row { margin-top: 6px; }
+  @media (orientation: landscape) {
+    .immersive-media { height: 100vh; margin-top: 0; }
+    .immersive-header { background: linear-gradient(to bottom, rgba(0,0,0,0.5), rgba(0,0,0,0)); color: #fff; border-bottom: none; }
+    .immersive-close { border-color: rgba(255,255,255,0.35); color: #fff; background: rgba(0,0,0,0.35); }
+    .immersive-info { display: none; }
+  }
   </style>
   <script>
     async function fetchJSON(path) {
@@ -641,34 +661,122 @@ _INDEX_HTML = """<!DOCTYPE html>
       modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
       window.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 
-      window.openPlayer = (item, title, type) => {
-        modalTitle.textContent = title || 'Media';
-        // Clear previous content
-        mediaEl.innerHTML = '';
-        
-        // Prefer transcoded version if available
-        let src = item.transcoded || item.primary_media;
-        
+      // Immersive player elements
+      const immersive = document.getElementById('immersive');
+      const immTitle = document.getElementById('immersiveTitle');
+      const immMedia = document.getElementById('immersiveMedia');
+      const immInfo = document.getElementById('immersiveInfo');
+      const immClose = document.getElementById('immersiveClose');
+
+      function isDesktop() {
+        return window.matchMedia('(min-width: 1024px)').matches && window.matchMedia('(pointer: fine)').matches;
+      }
+
+      function updateImmersiveOrientation() {
+        if (!immersive.classList.contains('open')) return;
+        const isLand = window.matchMedia('(orientation: landscape)').matches;
+        immersive.classList.toggle('landscape', isLand);
+      }
+      window.addEventListener('resize', updateImmersiveOrientation);
+
+      function openImmersive(item, title, type) {
+        document.body.classList.add('immersive-open');
+        immTitle.textContent = title || 'Media';
+        immMedia.innerHTML = '';
+        immInfo.innerHTML = '';
+
+        const src = item.transcoded || item.primary_media;
         if (type === 'video') {
-          mediaEl.innerHTML = '<video controls preload=\"metadata\" style=\"width:100%; height:auto;\"></video>';
-          const video = mediaEl.querySelector('video');
-          video.setAttribute('src', src);
-          video.play().catch(() => {});
+          const video = document.createElement('video');
+          video.setAttribute('controls', '');
+          video.setAttribute('preload', 'metadata');
+          video.src = src;
+          immMedia.appendChild(video);
+          // Do not force autoplay on mobile; rely on user interaction
         } else if (type === 'audio') {
-          mediaEl.innerHTML = '<audio controls preload=\"metadata\" style=\"width:100%;\"></audio>';
-          const audio = mediaEl.querySelector('audio');
-          audio.setAttribute('src', src);
-          audio.play().catch(() => {});
+          const audio = document.createElement('audio');
+          audio.setAttribute('controls', '');
+          audio.setAttribute('preload', 'metadata');
+          audio.style.width = '100%';
+          audio.src = src;
+          immMedia.appendChild(audio);
+        } else if (type === 'image') {
+          const img = document.createElement('img');
+          img.alt = title || 'Image';
+          img.src = src;
+          immMedia.appendChild(img);
         }
-        modal.classList.add('open');
+
+        // Build metadata/details (portrait)
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const typeEl = document.createElement('span'); typeEl.className = 'badge'; typeEl.textContent = (item.media_type||'').replace(/^./, c=>c.toUpperCase());
+        const dateEl = document.createElement('span'); dateEl.className = 'badge'; dateEl.textContent = fmtDate(item.created_time);
+        const sizeEl = document.createElement('span'); sizeEl.className = 'badge'; sizeEl.textContent = fmtSize(item.size);
+        const subtitleEl = document.createElement('span'); subtitleEl.className = 'badge'; subtitleEl.textContent = 'CC'; subtitleEl.title = 'Has subtitles';
+        if (typeEl.textContent) meta.appendChild(typeEl);
+        if (dateEl.textContent) meta.appendChild(dateEl);
+        if (sizeEl.textContent) meta.appendChild(sizeEl);
+        if (item.subtitles && item.subtitles.length > 0) meta.appendChild(subtitleEl);
+
+        const links = document.createElement('div');
+        links.className = 'row';
+        if (item.analytics) { const a = document.createElement('a'); a.href = item.analytics; a.className='btn'; a.textContent='Analytics JSON'; links.appendChild(a); }
+        if (item.metadata) { const a = document.createElement('a'); a.href = item.metadata; a.className='btn'; a.textContent='Metadata JSON'; links.appendChild(a); }
+
+        const wrap = document.createElement('div');
+        const heading = document.createElement('div'); heading.className='title'; heading.textContent = title || 'Media';
+        wrap.appendChild(heading);
+        wrap.appendChild(meta);
+        if (links.children.length) wrap.appendChild(links);
+        immInfo.appendChild(wrap);
+
+        immersive.classList.add('open');
+        updateImmersiveOrientation();
+      }
+
+      function closeImmersive() {
+        document.body.classList.remove('immersive-open');
+        // Stop playback and release resource
+        const media = immMedia.querySelector('video, audio');
+        if (media) { try { media.pause(); } catch(e){} media.removeAttribute('src'); media.load && media.load(); }
+        immersive.classList.remove('open');
+      }
+      immClose.addEventListener('click', closeImmersive);
+
+      window.openPlayer = (item, title, type) => {
+        if (isDesktop()) {
+          modalTitle.textContent = title || 'Media';
+          mediaEl.innerHTML = '';
+          const src = item.transcoded || item.primary_media;
+          if (type === 'video') {
+            mediaEl.innerHTML = '<video controls preload=\"metadata\" style=\"width:100%; height:auto;\"></video>';
+            const video = mediaEl.querySelector('video');
+            video.setAttribute('src', src);
+            video.play().catch(() => {});
+          } else if (type === 'audio') {
+            mediaEl.innerHTML = '<audio controls preload=\"metadata\" style=\"width:100%;\"></audio>';
+            const audio = mediaEl.querySelector('audio');
+            audio.setAttribute('src', src);
+            audio.play().catch(() => {});
+          }
+          modal.classList.add('open');
+        } else {
+          openImmersive(item, title, type);
+        }
       };
 
       window.openImageViewer = (src, title) => {
-        modalTitle.textContent = title || 'Image';
-        mediaEl.innerHTML = '<img class=\"modal-image\" alt=\"' + (title || 'Image') + '\">';
-        const img = mediaEl.querySelector('img');
-        img.setAttribute('src', src);
-        modal.classList.add('open');
+        if (isDesktop()) {
+          modalTitle.textContent = title || 'Image';
+          mediaEl.innerHTML = '<img class=\"modal-image\" alt=\"' + (title || 'Image') + '\">';
+          const img = mediaEl.querySelector('img');
+          img.setAttribute('src', src);
+          modal.classList.add('open');
+        } else {
+          const item = { primary_media: src, media_type: 'image' };
+          openImmersive(item, title || 'Image', 'image');
+        }
       };
     }
 
@@ -714,5 +822,15 @@ _INDEX_HTML = """<!DOCTYPE html>
       </div>
     </div>
   </div>
+
+    <!-- Immersive player for mobile/tablets -->
+    <div id="immersive" class="immersive" aria-hidden="true">
+      <div class="immersive-header">
+        <button id="immersiveClose" class="immersive-close" aria-label="Close">Back</button>
+        <div id="immersiveTitle" class="immersive-title">Media</div>
+      </div>
+      <div id="immersiveMedia" class="immersive-media"></div>
+      <div id="immersiveInfo" class="immersive-info"></div>
+    </div>
 </body>
 </html>"""
