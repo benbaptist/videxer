@@ -383,6 +383,9 @@ _INDEX_HTML = """<!DOCTYPE html>
   .immersive-header { position: fixed; top: 0; left: 0; right: 0; height: var(--immersive-header-h); display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--nav); border-bottom: 1px solid var(--border); }
   .immersive-title { font-size: 14px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .immersive-close { background: transparent; border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 6px 10px; cursor: pointer; }
+  .quality { display:flex; gap:6px; align-items:center; }
+  .quality .btn { padding:6px 10px; }
+  .quality .btn.active { border-color: var(--accent); background: color-mix(in oklab, var(--panel), var(--accent) 12%); }
   .immersive-media { position: relative; width: 100vw; margin-top: var(--immersive-header-h); background: #000; height: min(56vh, calc(100vw * 9 / 16)); }
   .immersive-media > video, .immersive-media > img { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
   .immersive-info { position: absolute; top: calc(var(--immersive-header-h) + min(56vh, calc(100vw * 9 / 16))); bottom: 0; left: 0; right: 0; overflow: auto; padding: 12px; }
@@ -697,7 +700,8 @@ _INDEX_HTML = """<!DOCTYPE html>
       const immTitle = document.getElementById('immersiveTitle');
       const immMedia = document.getElementById('immersiveMedia');
       const immInfo = document.getElementById('immersiveInfo');
-      const immClose = document.getElementById('immersiveClose');
+  const immClose = document.getElementById('immersiveClose');
+  const qWrap = document.getElementById('qualityControls');
 
       function isDesktop() {
         return window.matchMedia('(min-width: 1024px)').matches && window.matchMedia('(pointer: fine)').matches;
@@ -715,8 +719,11 @@ _INDEX_HTML = """<!DOCTYPE html>
         immTitle.textContent = title || 'Media';
         immMedia.innerHTML = '';
         immInfo.innerHTML = '';
-
-        const src = item.transcoded || item.primary_media;
+        const hasOptimized = !!item.transcoded;
+        const hasOriginal = !!item.primary_media;
+        let currentQuality = hasOptimized ? 'optimized' : 'original';
+        const pickSrc = () => (currentQuality === 'optimized' ? item.transcoded : item.primary_media) || item.primary_media || item.transcoded;
+        const src = pickSrc();
         if (type === 'video') {
           const video = document.createElement('video');
           video.setAttribute('controls', '');
@@ -736,6 +743,46 @@ _INDEX_HTML = """<!DOCTYPE html>
           img.alt = title || 'Image';
           img.src = src;
           immMedia.appendChild(img);
+        }
+
+        // Build quality controls (for video/audio)
+        if (qWrap) {
+          qWrap.innerHTML = '';
+          if ((type === 'video' || type === 'audio') && (hasOptimized || hasOriginal)) {
+            const makeBtn = (label, q) => {
+              const b = document.createElement('button');
+              b.type = 'button';
+              b.className = 'btn';
+              b.textContent = label;
+              b.addEventListener('click', () => {
+                if (currentQuality === q) return;
+                const media = immMedia.querySelector(type);
+                if (!media) return;
+                const t = media.currentTime || 0;
+                currentQuality = q;
+                media.pause();
+                media.src = pickSrc();
+                try { media.currentTime = t; } catch {}
+                media.play().catch(() => {});
+                updateActive();
+              });
+              return b;
+            };
+            const updateActive = () => {
+              [...qWrap.querySelectorAll('button')].forEach(btn => btn.classList.remove('active'));
+              const target = currentQuality === 'optimized' ? btnOpt : btnOrig;
+              if (target) target.classList.add('active');
+            };
+            let btnOpt = null, btnOrig = null;
+            if (hasOptimized) btnOpt = makeBtn('Optimized', 'optimized');
+            if (hasOriginal) btnOrig = makeBtn('Original', 'original');
+            if (btnOpt) qWrap.appendChild(btnOpt);
+            if (btnOrig) qWrap.appendChild(btnOrig);
+            updateActive();
+            qWrap.style.display = (hasOptimized && hasOriginal) ? 'flex' : 'none';
+          } else {
+            qWrap.style.display = 'none';
+          }
         }
 
         // Build metadata/details (portrait)
@@ -776,25 +823,8 @@ _INDEX_HTML = """<!DOCTYPE html>
       immClose.addEventListener('click', closeImmersive);
 
       window.openPlayer = (item, title, type) => {
-        if (isDesktop()) {
-          modalTitle.textContent = title || 'Media';
-          mediaEl.innerHTML = '';
-          const src = item.transcoded || item.primary_media;
-          if (type === 'video') {
-            mediaEl.innerHTML = '<video controls preload=\"metadata\" style=\"width:100%; height:auto;\"></video>';
-            const video = mediaEl.querySelector('video');
-            video.setAttribute('src', src);
-            video.play().catch(() => {});
-          } else if (type === 'audio') {
-            mediaEl.innerHTML = '<audio controls preload=\"metadata\" style=\"width:100%;\"></audio>';
-            const audio = mediaEl.querySelector('audio');
-            audio.setAttribute('src', src);
-            audio.play().catch(() => {});
-          }
-          modal.classList.add('open');
-        } else {
-          openImmersive(item, title, type);
-        }
+        // Always use immersive view for consistent UI and quality control
+        openImmersive(item, title, type);
       };
 
       window.openImageViewer = (src, title) => {
@@ -859,6 +889,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       <div class="immersive-header">
         <button id="immersiveClose" class="immersive-close" aria-label="Close">Back</button>
         <div id="immersiveTitle" class="immersive-title">Media</div>
+        <div id="qualityControls" class="quality" style="display:none"></div>
       </div>
       <div id="immersiveMedia" class="immersive-media"></div>
       <div id="immersiveInfo" class="immersive-info"></div>
