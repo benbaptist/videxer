@@ -296,12 +296,24 @@ def _create_media_item(media_file: Path, root: Path, subtitle_files: List[Path],
         
         # Process thumbnails
         thumb_paths = []
-        if thumbnail_files:
-            # Use provided thumbnails
-            thumb_paths = [str(t.relative_to(root)) for t in thumbnail_files]
+        log = get_logger()
         
-        # Generate thumbnail for video files if requested
-        if generate_thumbnails and media_file.suffix.lower() in VIDEO_EXTS:
+        # First, check for existing thumbnails (user-provided or previously found)
+        existing_thumbnails = _find_existing_thumbnails(media_file, root)
+        if existing_thumbnails:
+            thumb_paths = [str(t.relative_to(root)) for t in existing_thumbnails]
+            log.debug(f"Found {len(existing_thumbnails)} existing thumbnail(s) for {media_file.name}")
+        
+        # Also include any thumbnails passed from the grouping function
+        if thumbnail_files:
+            for t in thumbnail_files:
+                thumb_rel = str(t.relative_to(root))
+                if thumb_rel not in thumb_paths:
+                    thumb_paths.append(thumb_rel)
+        
+        # Generate thumbnail for video files if requested AND no existing thumbnails found
+        if generate_thumbnails and media_file.suffix.lower() in VIDEO_EXTS and not thumb_paths:
+            log.debug(f"Generating thumbnail for {media_file.name}")
             thumb_filename = f"{media_file.stem}_thumb.jpg"
             assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
             ensure_dir(assets_dir)
@@ -314,7 +326,7 @@ def _create_media_item(media_file: Path, root: Path, subtitle_files: List[Path],
         
         if thumb_paths:
             item['thumbs'] = thumb_paths
-            item['thumb_best'] = thumb_paths[-1]
+            item['thumb_best'] = thumb_paths[0]  # Use first (highest quality) thumbnail
         
         # Generate motion thumbnail
         if generate_motion_thumbnails and media_file.suffix.lower() in VIDEO_EXTS:
@@ -854,7 +866,98 @@ def _determine_media_type(extension: str) -> str:
 def _is_thumbnail_file(filename: str) -> bool:
     """Check if a file is a thumbnail based on its name."""
     name = filename.lower()
-    return name.startswith("thumb_") or "_thumb" in name or name.endswith("_thumb.jpg") or name.endswith("_thumb.jpeg") or name.endswith("_thumb.png") or name.endswith("_thumb.webp")
+    stem = Path(filename).stem.lower()
+    
+    # Check for various thumbnail naming patterns
+    thumbnail_indicators = [
+        'thumb', 'thumbnail', 'cover', 'poster', 
+        'preview', 'artwork', 'folder'
+    ]
+    
+    # Check if the stem (filename without extension) contains or is exactly one of the indicators
+    for indicator in thumbnail_indicators:
+        if stem == indicator or f'_{indicator}' in stem or f'{indicator}_' in stem or f'-{indicator}' in stem or f'{indicator}-' in stem:
+            return True
+    
+    return False
+
+
+def _find_existing_thumbnails(media_file: Path, root: Path) -> List[Path]:
+    """Find existing thumbnail files for a media file.
+    
+    Supports both nested and flat directory structures:
+    - Nested: video_dir/video.mp4 and video_dir/thumb.jpg
+    - Flat: video.mp4 and video_thumb.jpg or video-thumbnail.png
+    
+    Args:
+        media_file: Path to the media file
+        root: Root directory for scanning
+        
+    Returns:
+        List of thumbnail file paths, sorted by quality preference
+    """
+    thumbnails = []
+    media_stem = media_file.stem
+    media_dir = media_file.parent
+    
+    # Define thumbnail patterns to search for
+    # Patterns are ordered by preference (higher resolution indicators first)
+    thumbnail_patterns = [
+        # High-resolution indicators
+        f"{media_stem}_thumb_*",
+        f"{media_stem}-thumb_*",
+        # Standard patterns for flat structure
+        f"{media_stem}_thumbnail.*",
+        f"{media_stem}-thumbnail.*",
+        f"{media_stem}_thumb.*",
+        f"{media_stem}-thumb.*",
+        f"{media_stem}_cover.*",
+        f"{media_stem}-cover.*",
+        f"{media_stem}_poster.*",
+        f"{media_stem}-poster.*",
+        # Nested directory patterns (generic names)
+        "thumb_*.*",
+        "thumbnail_*.*",
+        "thumb.*",
+        "thumbnail.*",
+        "cover.*",
+        "poster.*",
+        "folder.*",
+        "artwork.*",
+        "preview.*",
+    ]
+    
+    # Search in the same directory as the media file
+    for pattern in thumbnail_patterns:
+        for match in media_dir.glob(pattern):
+            if match.is_file() and match.suffix.lower() in IMAGE_EXTS and match != media_file:
+                thumbnails.append(match)
+    
+    # Remove duplicates and sort by preference
+    # Prefer files with resolution indicators (e.g., thumb_500x.jpg)
+    unique_thumbnails = list(dict.fromkeys(thumbnails))
+    
+    def thumbnail_sort_key(thumb_path: Path) -> tuple:
+        """Sort thumbnails by quality indicators."""
+        name = thumb_path.stem.lower()
+        
+        # Extract resolution if present (e.g., thumb_500x, thumb_1920x1080)
+        import re
+        resolution_match = re.search(r'(\d+)x(\d*)', name)
+        if resolution_match:
+            width = int(resolution_match.group(1))
+            height = int(resolution_match.group(2)) if resolution_match.group(2) else width
+            return (1, width * height)  # Higher resolution = better
+        
+        # Prefer specific names over generic ones
+        if media_stem in name:
+            return (0, 1000)  # Media-specific thumbnails
+        
+        return (0, 0)  # Generic thumbnails
+    
+    unique_thumbnails.sort(key=thumbnail_sort_key, reverse=True)
+    
+    return unique_thumbnails
 
 
 def _is_subtitle_file(filename: str) -> bool:
