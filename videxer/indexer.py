@@ -67,6 +67,27 @@ def _add_to_search_index(index_dict: Dict, text: str, item_idx: int):
                 index_dict[word].append(item_idx)
 
 
+def _flatten_items(items: List[Dict]) -> List[Dict]:
+    """Flatten hierarchical structure to a list of all media items for indexing.
+    
+    Args:
+        items: Hierarchical list of items (may contain directories with children)
+        
+    Returns:
+        Flat list of all media items
+    """
+    flat_items = []
+    
+    for item in items:
+        if item.get('type') == 'media':
+            flat_items.append(item)
+        elif item.get('type') == 'directory' and 'children' in item:
+            # Recursively flatten children
+            flat_items.extend(_flatten_items(item['children']))
+    
+    return flat_items
+
+
 def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> Dict:
   """Build index data for all media directories and files.
 
@@ -77,17 +98,21 @@ def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_t
   structure = detect_media_structure(root)
   log.debug(f"Building index for {root} (structure={structure.value}, thumbs={generate_thumbnails}, motion={generate_motion_thumbnails}, transcodes={generate_transcodes})")
 
-  # Collect all media items using the unified approach
-  raw_items = collect_media_items(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
-  log.debug(f"Collected raw items: {len(raw_items)}")
+  # Collect all media items using the hierarchical approach
+  hierarchical_items = collect_media_items(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
+  log.debug(f"Collected hierarchical items: {len(hierarchical_items)}")
+
+  # Flatten the structure for search indexing
+  flat_items = _flatten_items(hierarchical_items)
+  log.debug(f"Flattened to {len(flat_items)} media items for search index")
 
   # Process items to add metadata and ensure consistent structure
-  items = []
+  processed_items = []
   current_transcodes = set()
-  for item in raw_items:
+  for item in flat_items:
     processed_item = _process_media_item(item, root)
     if processed_item:
-      items.append(processed_item)
+      processed_items.append(processed_item)
       # Collect transcoded file paths for cleanup
       if "transcoded" in processed_item:
         current_transcodes.add(processed_item["transcoded"])
@@ -99,21 +124,21 @@ def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_t
     log.debug("Cleaned up old transcodes (if any)")
 
   # Build both indexes, then strip bulky subtitle payloads from items
-  base_search_index = _build_base_search_index(items)
-  subtitle_index = _build_subtitle_index(items)
+  base_search_index = _build_base_search_index(processed_items)
+  subtitle_index = _build_subtitle_index(processed_items)
 
-  for it in items:
+  for it in processed_items:
     if "subtitles" in it:
       has = bool(it.get("subtitles"))
       it.pop("subtitles", None)
       if has:
         it["has_subtitles"] = True
-  log.info(f"Indexed items: {len(items)} (with subtitles indexed separately)")
+  log.info(f"Indexed items: {len(processed_items)} (with subtitles indexed separately)")
 
   return {
-    "items": items,
+    "items": hierarchical_items,  # Keep hierarchical structure in output
     "structure": structure.value,
-    "total_items": len(items),
+    "total_items": len(processed_items),
     "search_index": base_search_index,
     "_subtitle_index": subtitle_index,
   }
@@ -132,34 +157,32 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
     try:
         # Extract basic information
         name = item.get("name", "")
-        created_time = None
+        created_time = item.get("created_time")
         description = None
 
-        # Handle metadata extraction based on item type
-        if item["type"] == "file":
-            # For flat files, extract metadata from filename
+        # Try to extract metadata from filename if no created_time
+        if not created_time and "path" in item:
             file_metadata = _extract_metadata_from_filename(item["path"])
-            name = file_metadata["name"] or name
-            created_time = file_metadata["created_time"]
-        else:
-            # For directories, try to load metadata.json if present
-            if "metadata" in item:
+            if file_metadata["created_time"]:
+                created_time = file_metadata["created_time"]
+
+        # Try to load metadata.json if present in the same directory
+        if "path" in item:
+            item_path = root / item["path"]
+            metadata_path = item_path.parent / "metadata.json"
+            if metadata_path.exists():
                 try:
-                    metadata_path = root / item["metadata"]
                     with open(metadata_path, "r", encoding="utf-8") as f:
                         md = json.load(f)
                         name = md.get("name", name)
-                        created_time = md.get("created_time")
+                        created_time = md.get("created_time", created_time)
                         description = md.get("description")
                 except Exception:
                     pass
 
-        # Use directory/file name as fallback
+        # Use provided name as fallback
         if not name:
-            if item["type"] == "file":
-                name = Path(item["path"]).stem
-            else:
-                name = item["dir"]
+            name = Path(item.get("path", "unknown")).stem
 
         # Build the final item structure
         processed_item = {
@@ -168,50 +191,21 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
             "size": item.get("size"),
             "media_type": item.get("media_type", "unknown"),
             "description": description,
+            "path": item.get("path"),
+            "primary_media": item.get("primary_media"),
         }
 
-        # Add type-specific fields
-        if item["type"] == "file":
-            processed_item.update({
-                "path": item["path"],
-                "primary_media": item["path"],
-            })
-
-            # Add optional fields for files
-            if "thumbs" in item:
-                processed_item["thumbs"] = item["thumbs"]
-            if "thumb_best" in item:
-                processed_item["thumb_best"] = item["thumb_best"]
-            if "motion_thumb" in item:
-                processed_item["motion_thumb"] = item["motion_thumb"]
-            if "transcoded" in item:
-                processed_item["transcoded"] = item["transcoded"]
-            if "subtitles" in item:
-                processed_item["subtitles"] = item["subtitles"]
-        else:
-            processed_item.update({
-                "dir": item["dir"],
-                "media_files": item.get("media_files", []),
-                "primary_media": item.get("primary_media"),
-            })
-
-            # Add optional fields for directories
-            if "metadata" in item:
-                processed_item["metadata"] = item["metadata"]
-            if "analytics" in item:
-                processed_item["analytics"] = item["analytics"]
-            if "thumbs" in item:
-                processed_item["thumbs"] = item["thumbs"]
-            if "thumb_best" in item:
-                processed_item["thumb_best"] = item["thumb_best"]
-            if "motion_thumb" in item:
-                processed_item["motion_thumb"] = item["motion_thumb"]
-            if "transcoded" in item:
-                processed_item["transcoded"] = item["transcoded"]
-            if "video" in item:
-                processed_item["video"] = item["video"]
-            if "subtitles" in item:
-                processed_item["subtitles"] = item["subtitles"]
+        # Add optional fields
+        if "thumbs" in item:
+            processed_item["thumbs"] = item["thumbs"]
+        if "thumb_best" in item:
+            processed_item["thumb_best"] = item["thumb_best"]
+        if "motion_thumb" in item:
+            processed_item["motion_thumb"] = item["motion_thumb"]
+        if "transcoded" in item:
+            processed_item["transcoded"] = item["transcoded"]
+        if "subtitles" in item:
+            processed_item["subtitles"] = item["subtitles"]
 
         return processed_item
 
@@ -337,6 +331,16 @@ _INDEX_HTML = """<!DOCTYPE html>
   .btn:hover { border-color: color-mix(in oklab, var(--border), var(--accent) 35%); background: color-mix(in oklab, var(--panel), var(--accent) 8%); }
   .hint { font-size: 12px; color: var(--muted); margin-left: 2px; }
 
+  /* Breadcrumb navigation */
+  .breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 8px 0; margin-bottom: 8px; }
+  .breadcrumb-item { padding: 6px 10px; font-size: 13px; }
+  .breadcrumb-sep { color: var(--muted); font-size: 12px; }
+
+  /* Directory cards */
+  .directory-media { display: flex; align-items: center; justify-content: center; min-height: 160px; background: linear-gradient(135deg, var(--panel) 0%, color-mix(in oklab, var(--panel), var(--accent) 5%) 100%); }
+  .directory-icon { color: var(--accent); opacity: 0.7; }
+  .directory-media:hover .directory-icon { opacity: 1; }
+
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: border-color .18s ease; box-shadow: 0 1px 4px var(--shadow); }
   /* Remove lift/translate hover animation */
   .card:hover { border-color: color-mix(in oklab, var(--border), var(--accent) 35%); }
@@ -437,132 +441,244 @@ _INDEX_HTML = """<!DOCTYPE html>
 
     async function load() {
       const data = await fetchJSON('index.json');
-  const container = document.querySelector('.container');
-  const search = document.getElementById('search');
-  const sortSel = document.getElementById('sort');
-  const dirBtn = document.getElementById('direction');
-  const viewBtn = document.getElementById('view');
-  const subtitleHint = document.getElementById('subtitleHint');
-  let items = data.items || [];
-  let searchIndex = data.search_index || { subtitle_terms: {}, name_terms: {}, description_terms: {}, item_map: [] };
-  let sortKey = 'date'; // alpha | size | date | type
-  let sortDir = 'desc'; // asc | desc
-  let viewMode = 'grid'; // grid | list
+      const container = document.querySelector('.container');
+      const search = document.getElementById('search');
+      const sortSel = document.getElementById('sort');
+      const dirBtn = document.getElementById('direction');
+      const viewBtn = document.getElementById('view');
+      const breadcrumbEl = document.getElementById('breadcrumb');
+      
+      let allItems = data.items || [];
+      let currentPath = []; // Stack of directory names
+      let currentItems = allItems; // Items in current view
+      let searchIndex = data.search_index || { subtitle_terms: {}, name_terms: {}, description_terms: {}, item_map: [] };
+      let sortKey = 'date'; // alpha | size | date | type
+      let sortDir = 'desc'; // asc | desc
+      let viewMode = 'grid'; // grid | list
+
+      function updateBreadcrumb() {
+        breadcrumbEl.innerHTML = '';
+        
+        // Root/home button
+        const homeBtn = document.createElement('button');
+        homeBtn.className = 'breadcrumb-item btn';
+        homeBtn.textContent = '🏠 Library';
+        homeBtn.addEventListener('click', () => navigateToRoot());
+        breadcrumbEl.appendChild(homeBtn);
+        
+        // Path segments
+        currentPath.forEach((dirName, idx) => {
+          const sep = document.createElement('span');
+          sep.className = 'breadcrumb-sep';
+          sep.textContent = ' / ';
+          breadcrumbEl.appendChild(sep);
+          
+          const btn = document.createElement('button');
+          btn.className = 'breadcrumb-item btn';
+          btn.textContent = dirName;
+          btn.addEventListener('click', () => navigateToIndex(idx + 1));
+          breadcrumbEl.appendChild(btn);
+        });
+      }
+      
+      function navigateToRoot() {
+        currentPath = [];
+        currentItems = allItems;
+        search.value = '';
+        apply();
+      }
+      
+      function navigateToIndex(pathIndex) {
+        // Navigate to a specific depth in the path
+        currentPath = currentPath.slice(0, pathIndex);
+        
+        // Navigate through hierarchy to find current items
+        currentItems = allItems;
+        for (const dirName of currentPath) {
+          const dir = currentItems.find(item => item.type === 'directory' && item.name === dirName);
+          if (dir && dir.children) {
+            currentItems = dir.children;
+          } else {
+            // Path not found, go to root
+            currentPath = [];
+            currentItems = allItems;
+            break;
+          }
+        }
+        
+        search.value = '';
+        apply();
+      }
+      
+      function navigateInto(dirName) {
+        const dir = currentItems.find(item => item.type === 'directory' && item.name === dirName);
+        if (dir && dir.children) {
+          currentPath.push(dirName);
+          currentItems = dir.children;
+          search.value = '';
+          apply();
+        }
+      }
 
       function render(list) {
         container.innerHTML = '';
         container.classList.toggle('list', viewMode === 'list');
+        updateBreadcrumb();
+        
         for (const it of list) {
           const card = document.createElement('div');
           card.className = 'card';
-          // Media with overlay and click-to-play/open
-          const media = document.createElement('button');
-          media.className = 'media';
-          media.type = 'button';
-          const img = document.createElement('img');
-          img.className = 'thumb';
-          img.loading = 'lazy';
-          const thumbSrc = pickThumb(it);
-          const motionThumbSrc = it.motion_thumb;
-          if (thumbSrc) {
-            img.src = thumbSrc;
-            img.alt = it.name || it.dir;
+          
+          if (it.type === 'directory') {
+            // Render directory card
+            const dirBtn = document.createElement('button');
+            dirBtn.className = 'media directory-media';
+            dirBtn.type = 'button';
+            
+            const icon = document.createElement('div');
+            icon.className = 'directory-icon';
+            icon.innerHTML = '<svg viewBox="0 0 24 24" width="64" height="64"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="currentColor"/></svg>';
+            dirBtn.appendChild(icon);
+            
+            dirBtn.addEventListener('click', () => navigateInto(it.name));
+            card.appendChild(dirBtn);
+            
+            const content = document.createElement('div');
+            content.className = 'content';
+            
+            const title = document.createElement('div');
+            title.className = 'title';
+            const titleBtn = document.createElement('button');
+            titleBtn.type = 'button';
+            titleBtn.textContent = it.name;
+            titleBtn.addEventListener('click', () => navigateInto(it.name));
+            title.appendChild(titleBtn);
+            
+            const meta = document.createElement('div');
+            meta.className = 'meta';
+            const typeEl = document.createElement('span');
+            typeEl.className = 'badge';
+            typeEl.textContent = 'Folder';
+            meta.appendChild(typeEl);
+            
+            content.appendChild(title);
+            content.appendChild(meta);
+            card.appendChild(content);
+            container.appendChild(card);
           } else {
-            // Placeholder for media without thumbnails
-            img.src = 'data:image/svg+xml;base64,' + btoa('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"320\" height=\"180\" fill=\"#1f2937\"/><text x=\"160\" y=\"90\" text-anchor=\"middle\" fill=\"#9ca3af\" font-family=\"system-ui\" font-size=\"14\">' + it.media_type + '</text></svg>');
-            img.alt = it.name || it.dir;
-          }
-          media.appendChild(img);
-          const overlay = document.createElement('div');
-          overlay.className = 'play';
-          overlay.innerHTML = '<div class=\"play-icon\">' + getMediaIcon(it.media_type) + '</div>';
-          media.appendChild(overlay);
-
-          // Motion thumbnail preview on hover (no lift animation)
-          if (motionThumbSrc && thumbSrc) {
-            const motionVideo = document.createElement('video');
-            motionVideo.className = 'motion-thumb';
-            motionVideo.src = motionThumbSrc;
-            motionVideo.muted = true;
-            motionVideo.loop = true;
-            motionVideo.preload = 'none';
-            media.appendChild(motionVideo);
-
-            media.addEventListener('mouseenter', () => {
-              motionVideo.style.opacity = '1';
-              motionVideo.play().catch(() => {});
-            });
-
-            media.addEventListener('mouseleave', () => {
-              motionVideo.style.opacity = '0';
-              motionVideo.pause();
-              motionVideo.currentTime = 0;
-            });
-          }
-          if (it.primary_media) {
-            if (it.media_type === 'image') {
-              media.addEventListener('click', () => openImageViewer(it.primary_media, it.name || it.dir));
+            // Render media card (existing logic)
+            const media = document.createElement('button');
+            media.className = 'media';
+            media.type = 'button';
+            const img = document.createElement('img');
+            img.className = 'thumb';
+            img.loading = 'lazy';
+            const thumbSrc = pickThumb(it);
+            const motionThumbSrc = it.motion_thumb;
+            if (thumbSrc) {
+              img.src = thumbSrc;
+              img.alt = it.name || it.dir;
             } else {
-              media.addEventListener('click', () => openPlayer(it, it.name || it.dir, it.media_type));
+              img.src = 'data:image/svg+xml;base64,' + btoa('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"320\" height=\"180\" fill=\"#1f2937\"/><text x=\"160\" y=\"90\" text-anchor=\"middle\" fill=\"#9ca3af\" font-family=\"system-ui\" font-size=\"14\">' + it.media_type + '</text></svg>');
+              img.alt = it.name || it.dir;
             }
-          }
-          card.appendChild(media);
+            media.appendChild(img);
+            const overlay = document.createElement('div');
+            overlay.className = 'play';
+            overlay.innerHTML = '<div class=\"play-icon\">' + getMediaIcon(it.media_type) + '</div>';
+            media.appendChild(overlay);
 
-          const content = document.createElement('div');
-          content.className = 'content';
-          const title = document.createElement('div');
-          title.className = 'title';
-          if (it.primary_media) {
-            const tbtn = document.createElement('button');
-            tbtn.type = 'button';
-            tbtn.textContent = it.name || it.dir;
-            if (it.media_type === 'image') {
-              tbtn.addEventListener('click', () => openImageViewer(it.primary_media, it.name || it.dir));
-            } else {
-              tbtn.addEventListener('click', () => openPlayer(it, it.name || it.dir, it.media_type));
+            if (motionThumbSrc && thumbSrc) {
+              const motionVideo = document.createElement('video');
+              motionVideo.className = 'motion-thumb';
+              motionVideo.src = motionThumbSrc;
+              motionVideo.muted = true;
+              motionVideo.loop = true;
+              motionVideo.preload = 'none';
+              media.appendChild(motionVideo);
+
+              media.addEventListener('mouseenter', () => {
+                motionVideo.style.opacity = '1';
+                motionVideo.play().catch(() => {});
+              });
+
+              media.addEventListener('mouseleave', () => {
+                motionVideo.style.opacity = '0';
+                motionVideo.pause();
+                motionVideo.currentTime = 0;
+              });
             }
-            title.appendChild(tbtn);
-          } else {
-            title.textContent = it.name || it.dir;
+            if (it.primary_media) {
+              if (it.media_type === 'image') {
+                media.addEventListener('click', () => openImageViewer(it.primary_media, it.name || it.dir));
+              } else {
+                media.addEventListener('click', () => openPlayer(it, it.name || it.dir, it.media_type));
+              }
+            }
+            card.appendChild(media);
+
+            const content = document.createElement('div');
+            content.className = 'content';
+            const title = document.createElement('div');
+            title.className = 'title';
+            if (it.primary_media) {
+              const tbtn = document.createElement('button');
+              tbtn.type = 'button';
+              tbtn.textContent = it.name || it.dir;
+              if (it.media_type === 'image') {
+                tbtn.addEventListener('click', () => openImageViewer(it.primary_media, it.name || it.dir));
+              } else {
+                tbtn.addEventListener('click', () => openPlayer(it, it.name || it.dir, it.media_type));
+              }
+              title.appendChild(tbtn);
+            } else {
+              title.textContent = it.name || it.dir;
+            }
+            const meta = document.createElement('div');
+            meta.className = 'meta';
+            const typeEl = document.createElement('span');
+            typeEl.className = 'badge';
+            typeEl.textContent = it.media_type.charAt(0).toUpperCase() + it.media_type.slice(1);
+            const dateEl = document.createElement('span');
+            dateEl.className = 'badge';
+            dateEl.textContent = fmtDate(it.created_time);
+            const sizeEl = document.createElement('span');
+            sizeEl.className = 'badge';
+            sizeEl.textContent = fmtSize(it.size);
+            const subtitleEl = document.createElement('span');
+            subtitleEl.className = 'badge';
+            subtitleEl.textContent = 'CC';
+            subtitleEl.title = 'Has subtitles';
+            if (typeEl.textContent) meta.appendChild(typeEl);
+            if (dateEl.textContent) meta.appendChild(dateEl);
+            if (sizeEl.textContent) meta.appendChild(sizeEl);
+            if (it.has_subtitles) meta.appendChild(subtitleEl);
+            const row = document.createElement('div');
+            row.className = 'row';
+            if (it.analytics) { const a = document.createElement('a'); a.href = it.analytics; a.className='btn'; a.textContent='Analytics JSON'; row.appendChild(a); }
+            if (it.metadata) { const a = document.createElement('a'); a.href = it.metadata; a.className='btn'; a.textContent='Metadata JSON'; row.appendChild(a); }
+            content.appendChild(title);
+            content.appendChild(meta);
+            if (row.children.length) content.appendChild(row);
+            card.appendChild(content);
+            container.appendChild(card);
           }
-          const meta = document.createElement('div');
-          meta.className = 'meta';
-          const typeEl = document.createElement('span');
-          typeEl.className = 'badge';
-          typeEl.textContent = it.media_type.charAt(0).toUpperCase() + it.media_type.slice(1);
-          const dateEl = document.createElement('span');
-          dateEl.className = 'badge';
-          dateEl.textContent = fmtDate(it.created_time);
-          const sizeEl = document.createElement('span');
-          sizeEl.className = 'badge';
-          sizeEl.textContent = fmtSize(it.size);
-          const subtitleEl = document.createElement('span');
-          subtitleEl.className = 'badge';
-          subtitleEl.textContent = 'CC';
-          subtitleEl.title = 'Has subtitles';
-          if (typeEl.textContent) meta.appendChild(typeEl);
-          if (dateEl.textContent) meta.appendChild(dateEl);
-          if (sizeEl.textContent) meta.appendChild(sizeEl);
-          if (it.has_subtitles) meta.appendChild(subtitleEl);
-          const row = document.createElement('div');
-          row.className = 'row';
-          if (it.analytics) { const a = document.createElement('a'); a.href = it.analytics; a.className='btn'; a.textContent='Analytics JSON'; row.appendChild(a); }
-          if (it.metadata) { const a = document.createElement('a'); a.href = it.metadata; a.className='btn'; a.textContent='Metadata JSON'; row.appendChild(a); }
-          content.appendChild(title);
-          content.appendChild(meta);
-          if (row.children.length) content.appendChild(row);
-          card.appendChild(content);
-          container.appendChild(card);
         }
       }
 
       function sortItems(list) {
         const arr = [...list];
         const dir = sortDir === 'asc' ? 1 : -1;
+        
+        // Sort directories first, then media items
         arr.sort((a, b) => {
+          // Directories always come before media when not searching
+          if (a.type === 'directory' && b.type !== 'directory') return -1;
+          if (a.type !== 'directory' && b.type === 'directory') return 1;
+          
           if (sortKey === 'alpha') {
-            const an = (a.name || a.dir || '').toLowerCase();
-            const bn = (b.name || b.dir || '').toLowerCase();
+            const an = (a.name || '').toLowerCase();
+            const bn = (b.name || '').toLowerCase();
             if (an < bn) return -1 * dir; if (an > bn) return 1 * dir; return 0;
           } else if (sortKey === 'size') {
             const av = a.size || 0; const bv = b.size || 0; return (av - bv) * dir;
@@ -580,88 +696,93 @@ _INDEX_HTML = """<!DOCTYPE html>
         return arr;
       }
 
-    function extractVideoId(dirName) {
-      const match = dirName.match(/ - (\\d+)$/);
-      return match ? match[1] : '';
-    }
-
-  // Subtitle search is powered by a separate, lazy-loaded index
-
-    function apply() {
-      const q = search.value.toLowerCase().trim();
-      let filtered;
-
-      if (!q) {
-        // No search query, show all items
-        filtered = items;
-      } else {
-        // If subtitle index isn't loaded, fetch it in the background to improve search results
-        if (!searchIndex.subtitle_terms) searchIndex.subtitle_terms = {};
-        if (Object.keys(searchIndex.subtitle_terms).length === 0) {
-          const hintEl = document.getElementById('subtitleHint');
-          if (hintEl) hintEl.textContent = 'Loading subtitle index to improve search…';
-          fetchJSON('index.subtitles.json')
-            .then(subs => {
-              searchIndex.subtitle_terms = subs.subtitle_terms || {};
-              if (hintEl) hintEl.textContent = 'Subtitle search index loaded.';
-              apply();
-            })
-            .catch(() => {
-              if (hintEl) hintEl.textContent = 'Subtitle index failed to load.';
-            });
-        }
-        // Use search index for efficient filtering if available
-        if (searchIndex.item_map && searchIndex.item_map.length > 0) {
-          const matchingIndices = new Set();
-
-          // Search in names
-          for (const term in searchIndex.name_terms) {
-            if (term.includes(q)) {
-              searchIndex.name_terms[term].forEach(idx => matchingIndices.add(idx));
-            }
-          }
-
-          // Search in descriptions
-          for (const term in searchIndex.description_terms) {
-            if (term.includes(q)) {
-              searchIndex.description_terms[term].forEach(idx => matchingIndices.add(idx));
-            }
-          }
-
-          // Search in subtitles (if terms have been loaded)
-          if (searchIndex.subtitle_terms) {
-            for (const term in searchIndex.subtitle_terms) {
-              if (term.includes(q)) {
-                searchIndex.subtitle_terms[term].forEach(idx => matchingIndices.add(idx));
-              }
-            }
-          }
-
-          filtered = Array.from(matchingIndices).map(idx => items[idx]).filter(Boolean);
-        } else {
-          // Fallback to direct search if no index available (metadata only)
-          filtered = items.filter(it => {
-            const name = (it.name || '').toLowerCase();
-            const dir = (it.dir || '').toLowerCase();
-            const videoId = extractVideoId(it.dir || '').toLowerCase();
-            const type = (it.media_type || '').toLowerCase();
-            const description = (it.description || '').toLowerCase();
-
-            return name.includes(q) ||
-                   dir.includes(q) ||
-                   videoId.includes(q) ||
-                   type.includes(q) ||
-                   description.includes(q);
-          });
-        }
+      function extractVideoId(dirName) {
+        const match = dirName.match(/ - (\\d+)$/);
+        return match ? match[1] : '';
       }
 
-      const sorted = sortItems(filtered);
-      render(sorted);
-    }
+      // Flatten entire tree for search
+      function flattenAllItems(items) {
+        let flat = [];
+        for (const item of items) {
+          if (item.type === 'media') {
+            flat.push(item);
+          } else if (item.type === 'directory' && item.children) {
+            flat = flat.concat(flattenAllItems(item.children));
+          }
+        }
+        return flat;
+      }
+
+      function apply() {
+        const q = search.value.toLowerCase().trim();
+        let filtered;
+
+        if (!q) {
+          // No search query, show current directory items
+          filtered = currentItems;
+        } else {
+          // When searching, flatten all items and search across entire library
+          const allFlatItems = flattenAllItems(allItems);
+          
+          // If subtitle index isn't loaded, fetch it in the background
+          if (!searchIndex.subtitle_terms) searchIndex.subtitle_terms = {};
+          if (Object.keys(searchIndex.subtitle_terms).length === 0) {
+            fetchJSON('index.subtitles.json')
+              .then(subs => {
+                searchIndex.subtitle_terms = subs.subtitle_terms || {};
+                apply();
+              })
+              .catch(() => {});
+          }
+          
+          // Use search index for efficient filtering
+          if (searchIndex.item_map && searchIndex.item_map.length > 0) {
+            const matchingIndices = new Set();
+
+            for (const term in searchIndex.name_terms) {
+              if (term.includes(q)) {
+                searchIndex.name_terms[term].forEach(idx => matchingIndices.add(idx));
+              }
+            }
+
+            for (const term in searchIndex.description_terms) {
+              if (term.includes(q)) {
+                searchIndex.description_terms[term].forEach(idx => matchingIndices.add(idx));
+              }
+            }
+
+            if (searchIndex.subtitle_terms) {
+              for (const term in searchIndex.subtitle_terms) {
+                if (term.includes(q)) {
+                  searchIndex.subtitle_terms[term].forEach(idx => matchingIndices.add(idx));
+                }
+              }
+            }
+
+            filtered = Array.from(matchingIndices).map(idx => allFlatItems[idx]).filter(Boolean);
+          } else {
+            // Fallback to direct search
+            filtered = allFlatItems.filter(it => {
+              const name = (it.name || '').toLowerCase();
+              const path = (it.path || '').toLowerCase();
+              const type = (it.media_type || '').toLowerCase();
+              const description = (it.description || '').toLowerCase();
+
+              return name.includes(q) ||
+                     path.includes(q) ||
+                     type.includes(q) ||
+                     description.includes(q);
+            });
+          }
+        }
+
+        const sorted = sortItems(filtered);
+        render(sorted);
+      }
 
       // Initialize controls
-      render(sortItems(items));
+      apply();
       search.addEventListener('input', () => {
         apply();
       });
@@ -853,7 +974,6 @@ _INDEX_HTML = """<!DOCTYPE html>
       <div class="controls">
         <label for="search" class="visually-hidden">Search</label>
   <input id="search" class="input" placeholder="Search media, subtitles, descriptions..." />
-  <div id="subtitleHint" class="hint">Subtitle search will auto-load on first search.</div>
         <div class="row">
           <label for="sort" class="visually-hidden">Sort by</label>
           <select id="sort" class="select">
@@ -868,6 +988,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       </div>
     </nav>
     <main class="main" role="main">
+      <div id="breadcrumb" class="breadcrumb" style="padding: 12px 18px 0 18px;"></div>
       <div class="container"></div>
     </main>
   </div>

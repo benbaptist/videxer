@@ -134,20 +134,268 @@ def get_logger() -> logging.Logger:
     return logging.getLogger(_LOGGER_NAME)
 
 
-def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> List[Dict]:
-    """Collect all media items from the directory structure.
-
-    Handles flat, nested, and mixed structures uniformly.
-
+def _group_related_files(directory: Path) -> Dict[str, Dict]:
+    """Group media files with their related subtitle/thumbnail files.
+    
     Args:
-        root: Root directory to scan
-
+        directory: Directory to scan for related files
+        
     Returns:
-        List of media item dictionaries with unified structure
+        Dictionary mapping base names to their related files
+    """
+    media_groups = {}
+    
+    for entry in directory.iterdir():
+        if not entry.is_file():
+            continue
+            
+        # Skip hidden files, thumbnail files, and asset directories
+        if entry.name.startswith('.') or _is_thumbnail_file(entry.name):
+            continue
+            
+        suffix = entry.suffix.lower()
+        stem = entry.stem
+        
+        # Handle media files
+        if suffix in ALL_MEDIA_EXTS:
+            if stem not in media_groups:
+                media_groups[stem] = {
+                    'media': entry,
+                    'subtitles': [],
+                    'thumbnails': []
+                }
+            else:
+                # In case there are multiple media files with same stem, keep the first
+                if 'media' not in media_groups[stem]:
+                    media_groups[stem]['media'] = entry
+                    
+        # Handle subtitle files  
+        elif suffix in SUBTITLE_EXTS:
+            # Match subtitle to media by removing language codes
+            base_stem = stem
+            # Remove common language suffixes like .en, .eng, .english, etc.
+            import re
+            base_stem = re.sub(r'\.(en|eng|english|es|spa|spanish|fr|french|de|german)$', '', base_stem, flags=re.IGNORECASE)
+            
+            if base_stem not in media_groups:
+                media_groups[base_stem] = {'subtitles': [], 'thumbnails': []}
+            media_groups[base_stem]['subtitles'].append(entry)
+            
+        # Handle local thumbnail files (not in assets dir)
+        elif suffix in IMAGE_EXTS and ('thumb' in entry.name.lower() or entry.name.startswith('poster')):
+            # Try to match to a media file
+            for key in media_groups:
+                if key in entry.name:
+                    media_groups[key]['thumbnails'].append(entry)
+                    break
+    
+    return media_groups
+
+
+def _build_directory_structure(current_dir: Path, root: Path, generate_thumbnails: bool, generate_motion_thumbnails: bool, generate_transcodes: bool) -> List[Dict]:
+    """Recursively build directory structure with media items.
+    
+    Args:
+        current_dir: Current directory being processed
+        root: Root directory for relative paths
+        generate_thumbnails: Whether to generate thumbnails
+        generate_motion_thumbnails: Whether to generate motion thumbnails  
+        generate_transcodes: Whether to generate transcoded versions
+        
+    Returns:
+        List of items (media items and directories) in current directory
     """
     log = get_logger()
     items = []
-    structure = detect_media_structure(root)
+    
+    # Group related files in this directory
+    media_groups = _group_related_files(current_dir)
+    
+    # Collect subdirectories
+    subdirs = []
+    for entry in sorted(current_dir.iterdir()):
+        if entry.is_dir() and not entry.name.startswith('.'):
+            subdirs.append(entry)
+    
+    # Process each media group as a media item
+    for base_name, files in sorted(media_groups.items()):
+        if 'media' in files:
+            media_file = files['media']
+            media_item = _create_media_item(
+                media_file, 
+                root, 
+                files.get('subtitles', []),
+                files.get('thumbnails', []),
+                generate_thumbnails,
+                generate_motion_thumbnails,
+                generate_transcodes
+            )
+            if media_item:
+                items.append(media_item)
+    
+    # Process subdirectories
+    for subdir in subdirs:
+        # Recursively get contents of subdirectory
+        subdir_contents = _build_directory_structure(subdir, root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
+        
+        # Check if this is a single-media directory (flatten it)
+        media_items_in_subdir = [item for item in subdir_contents if item.get('type') == 'media']
+        dir_items_in_subdir = [item for item in subdir_contents if item.get('type') == 'directory']
+        
+        # Flatten if: exactly 1 media item and no subdirectories
+        should_flatten = len(media_items_in_subdir) == 1 and len(dir_items_in_subdir) == 0
+        
+        if should_flatten:
+            # Flatten: promote the media item to current level with directory name
+            media_item = media_items_in_subdir[0]
+            # Update the name to use the directory name instead
+            media_item['name'] = subdir.name
+            items.append(media_item)
+        elif subdir_contents:
+            # Keep as directory with children
+            dir_item = {
+                'type': 'directory',
+                'name': subdir.name,
+                'path': str(subdir.relative_to(root)),
+                'children': subdir_contents
+            }
+            items.append(dir_item)
+        # else: empty directory, skip it
+    
+    return items
+
+
+def _create_media_item(media_file: Path, root: Path, subtitle_files: List[Path], thumbnail_files: List[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool, generate_transcodes: bool) -> Optional[Dict]:
+    """Create a media item with all related files.
+    
+    Args:
+        media_file: Primary media file
+        root: Root directory for relative paths
+        subtitle_files: List of associated subtitle files
+        thumbnail_files: List of associated thumbnail files
+        generate_thumbnails: Whether to generate thumbnails
+        generate_motion_thumbnails: Whether to generate motion thumbnails
+        generate_transcodes: Whether to generate transcoded versions
+        
+    Returns:
+        Media item dictionary or None if invalid
+    """
+    try:
+        stat = media_file.stat()
+        relative_path = media_file.relative_to(root)
+        
+        item = {
+            'type': 'media',
+            'name': media_file.stem,
+            'path': str(relative_path),
+            'primary_media': str(relative_path),
+            'size': stat.st_size,
+            'modified_time': stat.st_mtime,
+            'media_type': _determine_media_type(media_file.suffix),
+        }
+        
+        # Process thumbnails
+        thumb_paths = []
+        if thumbnail_files:
+            # Use provided thumbnails
+            thumb_paths = [str(t.relative_to(root)) for t in thumbnail_files]
+        
+        # Generate thumbnail for video files if requested
+        if generate_thumbnails and media_file.suffix.lower() in VIDEO_EXTS:
+            thumb_filename = f"{media_file.stem}_thumb.jpg"
+            assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
+            ensure_dir(assets_dir)
+            thumb_path = assets_dir / thumb_filename
+            
+            if thumb_path.exists() or generate_video_thumbnail(media_file, thumb_path):
+                thumb_rel = str(thumb_path.relative_to(root))
+                if thumb_rel not in thumb_paths:
+                    thumb_paths.append(thumb_rel)
+        
+        if thumb_paths:
+            item['thumbs'] = thumb_paths
+            item['thumb_best'] = thumb_paths[-1]
+        
+        # Generate motion thumbnail
+        if generate_motion_thumbnails and media_file.suffix.lower() in VIDEO_EXTS:
+            motion_thumb_filename = f"{media_file.stem}_motion.mp4"
+            assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
+            ensure_dir(assets_dir)
+            motion_thumb_path = assets_dir / motion_thumb_filename
+            
+            if not motion_thumb_path.exists():
+                generate_motion_thumbnail(media_file, motion_thumb_path)
+            if motion_thumb_path.exists():
+                item['motion_thumb'] = str(motion_thumb_path.relative_to(root))
+        
+        # Generate transcode
+        if generate_transcodes and media_file.suffix.lower() in VIDEO_EXTS:
+            transcode_filename = f"{media_file.stem}_web.mp4"
+            assets_dir = root / INDEXER_ASSETS_DIR / "transcodes"
+            ensure_dir(assets_dir)
+            transcode_path = assets_dir / transcode_filename
+            log = get_logger()
+            
+            if transcode_path.exists():
+                if not validate_transcode_file(transcode_path):
+                    log.warning(f"Invalid transcode detected, will regenerate: {transcode_path}")
+                    try:
+                        transcode_path.unlink()
+                    except Exception:
+                        log.error(f"Failed to delete invalid transcode: {transcode_path}")
+                else:
+                    log.debug(f"Using existing valid transcode: {transcode_path}")
+                    
+            if not transcode_path.exists():
+                ok = generate_video_transcode(media_file, transcode_path)
+                if not ok:
+                    log.error(f"Transcoding failed for: {media_file}")
+                    
+            if transcode_path.exists():
+                item['transcoded'] = str(transcode_path.relative_to(root))
+        
+        # Process subtitles
+        if subtitle_files:
+            subtitles = []
+            for subtitle_file in subtitle_files:
+                try:
+                    parsed_data = parse_subtitle_file(subtitle_file)
+                    if parsed_data["text"]:
+                        subtitles.append({
+                            "file": str(subtitle_file.relative_to(root)),
+                            "language": _detect_subtitle_language(subtitle_file.name),
+                            "text": parsed_data["text"],
+                            "timestamps": parsed_data["timestamps"],
+                            "text_combined": " ".join(parsed_data["text"]).lower()
+                        })
+                except Exception:
+                    continue
+            if subtitles:
+                item['subtitles'] = subtitles
+        
+        return item
+        
+    except Exception as e:
+        log = get_logger()
+        log.error(f"Failed to create media item for {media_file}: {e}")
+        return None
+
+
+def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> List[Dict]:
+    """Collect all media items from the directory structure.
+
+    Handles flat, nested, and mixed structures uniformly with hierarchical navigation support.
+
+    Args:
+        root: Root directory to scan
+        generate_thumbnails: Whether to generate thumbnails
+        generate_motion_thumbnails: Whether to generate motion thumbnails
+        generate_transcodes: Whether to generate transcoded versions
+
+    Returns:
+        List of media item dictionaries with hierarchical structure
+    """
+    log = get_logger()
 
     # Preflight validation of existing transcodes to detect corruption
     if generate_transcodes:
@@ -155,21 +403,9 @@ def collect_media_items(root: Path, generate_thumbnails: bool = False, generate_
         if removed:
             log.info(f"Preflight: removed {removed} invalid transcode(s)")
 
-    # Handle flat files in root directory
-    if structure in [MediaStructure.FLAT, MediaStructure.MIXED]:
-        for entry in sorted(root.iterdir()):
-            if entry.is_file() and entry.suffix.lower() in ALL_MEDIA_EXTS and not _is_thumbnail_file(entry.name):
-                item = _create_file_item(entry, root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
-                if item:
-                    items.append(item)
-
-    # Handle nested directories
-    if structure in [MediaStructure.NESTED, MediaStructure.MIXED]:
-        for entry in sorted(root.iterdir()):
-            if entry.is_dir():
-                dir_items = _collect_directory_items(entry, root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
-                items.extend(dir_items)
-
+    # Build hierarchical structure from root
+    items = _build_directory_structure(root, root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
+    
     return items
 
 
