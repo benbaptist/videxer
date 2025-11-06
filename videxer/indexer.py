@@ -342,7 +342,7 @@ _INDEX_HTML = """<!DOCTYPE html>
     box-shadow: 0 8px 32px var(--shadow);
   }
   .brand { display:flex; align-items:center; gap:10px; margin-bottom: 12px; }
-  .brand-title { font-weight: 700; letter-spacing: .2px; font-size: 16px; }
+  .brand-title { font-weight: 800; letter-spacing: .3px; font-size: 20px; }
   .controls { display: grid; gap: 10px; }
   .controls .row { display:flex; gap:8px; flex-wrap: wrap; }
 
@@ -426,11 +426,10 @@ _INDEX_HTML = """<!DOCTYPE html>
     overflow: hidden; 
     display: flex; 
     flex-direction: column; 
-    transition: all 0.3s ease;
+    transition: box-shadow 0.3s ease;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   }
   .card:hover { 
-    transform: translateY(-4px);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   }
 
@@ -522,6 +521,12 @@ _INDEX_HTML = """<!DOCTYPE html>
   /* Immersive mobile player */
   :root { --immersive-header-h: 56px; }
   body.immersive-open { overflow: hidden; }
+  
+  /* On desktop, allow body to scroll normally */
+  @media (min-width: 1024px) {
+    body.immersive-open { overflow: auto; }
+  }
+  
   .immersive { 
     position: fixed; 
     inset: 0; 
@@ -589,6 +594,13 @@ _INDEX_HTML = """<!DOCTYPE html>
   .immersive .meta { margin-top: 8px; }
   .immersive .row { margin-top: 8px; }
   
+  /* Mobile/narrow viewport: fullscreen immersive player */
+  @media (max-width: 1023px) {
+    .immersive.open {
+      /* Full screen takeover on mobile */
+    }
+  }
+  
   /* Mobile landscape: fullscreen video without info panel */
   @media (orientation: landscape) and (max-width: 1023px) {
     .immersive-header { 
@@ -613,21 +625,51 @@ _INDEX_HTML = """<!DOCTYPE html>
     .immersive-info { display: none; }
   }
   
-  /* Desktop: side-by-side video and info panel */
+  /* Desktop: player in main area with sidebar visible */
   @media (min-width: 1024px) {
-    .immersive-content { display: flex; }
-    .immersive-media { flex: 1; height: 100%; }
-    .immersive-info { 
-      position: relative; 
-      top: 0; 
-      width: 400px; 
-      flex-shrink: 0; 
-      height: 100%; 
-      padding: 24px; 
-      border-left: none;
+    .immersive { 
+      /* On desktop, position relative to the app grid, not full screen */
+      position: fixed;
+      left: 340px; /* Account for sidebar width + margins */
+      right: 0;
+      top: 0;
+      bottom: 0;
+      z-index: 5; /* Lower than nav but above main content */
+      overflow-y: auto;
+    }
+    .immersive-header {
+      margin: 20px 20px 0 0;
+      border-radius: 24px 24px 0 0;
+    }
+    .immersive-content { 
+      display: flex;
+      flex-direction: column;
+      margin: 0 20px 20px 0;
+      border-radius: 0 0 24px 24px;
+      overflow: hidden;
       background: var(--card);
       backdrop-filter: var(--glass-blur);
       -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: 0 8px 32px var(--shadow);
+    }
+    .immersive-media { 
+      width: 100%; 
+      height: auto;
+      aspect-ratio: 16/9;
+      border-radius: 0;
+    }
+    .immersive-info { 
+      position: relative; 
+      top: 0; 
+      width: 100%; 
+      flex-shrink: 0; 
+      height: auto; 
+      padding: 24px; 
+      border-left: none;
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      overflow: visible;
     }
   }
   </style>
