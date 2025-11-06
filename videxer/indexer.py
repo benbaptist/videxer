@@ -383,23 +383,34 @@ _INDEX_HTML = """<!DOCTYPE html>
   :root { --immersive-header-h: 48px; }
   body.immersive-open { overflow: hidden; }
   .immersive { position: fixed; inset: 0; z-index: 60; display: none; background: var(--bg); color: var(--text); }
-  .immersive.open { display: block; }
-  .immersive-header { position: fixed; top: 0; left: 0; right: 0; height: var(--immersive-header-h); display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--nav); border-bottom: 1px solid var(--border); }
+  .immersive.open { display: flex; flex-direction: column; }
+  .immersive-header { position: relative; height: var(--immersive-header-h); display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--nav); border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .immersive-title { font-size: 14px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .immersive-close { background: transparent; border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 6px 10px; cursor: pointer; }
   .quality { display:flex; gap:6px; align-items:center; }
   .quality .btn { padding:6px 10px; }
   .quality .btn.active { border-color: var(--accent); background: color-mix(in oklab, var(--panel), var(--accent) 12%); }
-  .immersive-media { position: relative; width: 100vw; margin-top: var(--immersive-header-h); background: #000; height: min(56vh, calc(100vw * 9 / 16)); }
+  .immersive-content { position: relative; flex: 1; overflow: hidden; }
+  .immersive-media { position: relative; width: 100%; background: #000; height: min(56vh, calc(100vw * 9 / 16)); }
   .immersive-media > video, .immersive-media > img { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
-  .immersive-info { position: absolute; top: calc(var(--immersive-header-h) + min(56vh, calc(100vw * 9 / 16))); bottom: 0; left: 0; right: 0; overflow: auto; padding: 12px; }
+  .immersive-info { position: absolute; top: min(56vh, calc(100vw * 9 / 16)); bottom: 0; left: 0; right: 0; overflow: auto; padding: 12px; background: var(--bg); }
   .immersive .meta { margin-top: 6px; }
   .immersive .row { margin-top: 6px; }
-  @media (orientation: landscape) {
-    .immersive-media { height: 100vh; margin-top: 0; }
-    .immersive-header { background: linear-gradient(to bottom, rgba(0,0,0,0.5), rgba(0,0,0,0)); color: #fff; border-bottom: none; }
+  
+  /* Mobile landscape: fullscreen video without info panel */
+  @media (orientation: landscape) and (max-width: 1023px) {
+    .immersive-header { position: fixed; top: 0; left: 0; right: 0; z-index: 61; background: linear-gradient(to bottom, rgba(0,0,0,0.5), rgba(0,0,0,0)); color: #fff; border-bottom: none; }
     .immersive-close { border-color: rgba(255,255,255,0.35); color: #fff; background: rgba(0,0,0,0.35); }
+    .immersive-content { position: absolute; inset: 0; }
+    .immersive-media { height: 100%; }
     .immersive-info { display: none; }
+  }
+  
+  /* Desktop: side-by-side video and info panel */
+  @media (min-width: 1024px) {
+    .immersive-content { display: flex; }
+    .immersive-media { flex: 1; height: 100%; }
+    .immersive-info { position: relative; top: 0; width: 380px; flex-shrink: 0; height: 100%; padding: 16px; border-left: 1px solid var(--border); background: var(--card); }
   }
   </style>
   <script>
@@ -906,7 +917,7 @@ _INDEX_HTML = """<!DOCTYPE html>
           }
         }
 
-        // Build metadata/details (portrait)
+        // Build metadata/details
         const meta = document.createElement('div');
         meta.className = 'meta';
         const typeEl = document.createElement('span'); typeEl.className = 'badge'; typeEl.textContent = (item.media_type||'').replace(/^./, c=>c.toUpperCase());
@@ -927,6 +938,16 @@ _INDEX_HTML = """<!DOCTYPE html>
         const heading = document.createElement('div'); heading.className='title'; heading.textContent = title || 'Media';
         wrap.appendChild(heading);
         wrap.appendChild(meta);
+        
+        // Add description if available
+        if (item.description) {
+          const descEl = document.createElement('p');
+          descEl.style.marginTop = '12px';
+          descEl.style.lineHeight = '1.5';
+          descEl.textContent = item.description;
+          wrap.appendChild(descEl);
+        }
+        
         if (links.children.length) wrap.appendChild(links);
         immInfo.appendChild(wrap);
 
@@ -1012,8 +1033,10 @@ _INDEX_HTML = """<!DOCTYPE html>
         <div id="immersiveTitle" class="immersive-title">Media</div>
         <div id="qualityControls" class="quality" style="display:none"></div>
       </div>
-      <div id="immersiveMedia" class="immersive-media"></div>
-      <div id="immersiveInfo" class="immersive-info"></div>
+      <div class="immersive-content">
+        <div id="immersiveMedia" class="immersive-media"></div>
+        <div id="immersiveInfo" class="immersive-info"></div>
+      </div>
     </div>
 </body>
 </html>"""
