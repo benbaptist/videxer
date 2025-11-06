@@ -330,6 +330,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       border-bottom: none;
       margin: 20px 20px 0 20px;
       border-radius: 24px;
+      overflow: hidden;
     }
   }
 
@@ -361,7 +362,11 @@ _INDEX_HTML = """<!DOCTYPE html>
     max-width: 1800px; 
     margin: 0 auto; 
   }
-  .container.list { display:block; }
+  .container.list { 
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
 
   .input, .select, .btn { 
     padding: 12px 16px; 
@@ -395,7 +400,7 @@ _INDEX_HTML = """<!DOCTYPE html>
     flex-wrap: wrap; 
     gap: 8px; 
     padding: 0 0 16px 0; 
-    margin-bottom: 0; 
+    margin-bottom: 16px; 
   }
   .breadcrumb-item { 
     padding: 8px 14px; 
@@ -409,7 +414,7 @@ _INDEX_HTML = """<!DOCTYPE html>
     display: flex; 
     align-items: center; 
     justify-content: center; 
-    min-height: 180px; 
+    aspect-ratio: 16/9;
     background: linear-gradient(135deg, rgba(30, 30, 30, 0.4) 0%, rgba(40, 40, 40, 0.4) 100%);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
@@ -471,6 +476,7 @@ _INDEX_HTML = """<!DOCTYPE html>
   .row .btn { background: transparent; }
   .container.list .card { display:flex; flex-direction: row; align-items: stretch; }
   .container.list .media { width: 260px; min-width:260px; border-radius: 20px 0 0 20px; }
+  .container.list .directory-media { aspect-ratio: 16/9; }
   .container.list .thumb { width: 100%; height: 100%; aspect-ratio: unset; object-fit: cover; }
   .container.list .content { flex: 1; }
 
