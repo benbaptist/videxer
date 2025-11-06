@@ -948,6 +948,19 @@ _INDEX_HTML = """<!DOCTYPE html>
           wrap.appendChild(descEl);
         }
         
+        // Add download button for original file
+        if (item.primary_media || item.transcoded) {
+          const downloadBtn = document.createElement('a');
+          downloadBtn.href = item.primary_media || item.transcoded;
+          downloadBtn.download = '';
+          downloadBtn.className = 'btn';
+          downloadBtn.style.marginTop = '12px';
+          downloadBtn.style.display = 'inline-block';
+          downloadBtn.textContent = '⬇ Download Original';
+          downloadBtn.title = 'Download the original file';
+          wrap.appendChild(downloadBtn);
+        }
+        
         if (links.children.length) wrap.appendChild(links);
         immInfo.appendChild(wrap);
 
