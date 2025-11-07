@@ -585,11 +585,11 @@ _INDEX_HTML = """<!DOCTYPE html>
     box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.5);
   }
   .immersive-content { position: relative; flex: 1; overflow: hidden; }
-  .immersive-media { position: relative; width: 100%; background: #000; height: min(56vh, calc(100vw * 9 / 16)); }
+  .immersive-media { position: relative; width: 100%; background: #000; height: min(50vh, calc(100vw * 9 / 16)); }
   .immersive-media > video, .immersive-media > img { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
   .immersive-info { 
     position: absolute; 
-    top: min(56vh, calc(100vw * 9 / 16)); 
+    top: min(50vh, calc(100vw * 9 / 16)); 
     bottom: 0; 
     left: 0; 
     right: 0; 
@@ -1198,9 +1198,15 @@ _INDEX_HTML = """<!DOCTYPE html>
           const video = document.createElement('video');
           video.setAttribute('controls', '');
           video.setAttribute('preload', 'metadata');
+          video.setAttribute('autoplay', '');
           video.src = src;
           immMedia.appendChild(video);
-          // Do not force autoplay on mobile; rely on user interaction
+          // Enable loop for videos shorter than 1 minute
+          video.addEventListener('loadedmetadata', () => {
+            if (video.duration && video.duration < 60) {
+              video.setAttribute('loop', '');
+            }
+          });
         } else if (type === 'audio') {
           const audio = document.createElement('audio');
           audio.setAttribute('controls', '');
