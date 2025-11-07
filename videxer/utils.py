@@ -1140,6 +1140,9 @@ def _thumb_sort_key(filename: str) -> int:
 
 def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: float = 1.0, size: tuple = (320, 180)) -> bool:
     """Generate a thumbnail image from a video file at the specified timestamp.
+    
+    Maintains the original aspect ratio with letterboxing/pillarboxing to fit within
+    the target size without stretching.
 
     Args:
         video_path: Path to the video file
@@ -1152,6 +1155,7 @@ def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: flo
     """
     try:
         import cv2
+        import numpy as np
 
         # Open the video file
         cap = cv2.VideoCapture(str(video_path))
@@ -1179,11 +1183,32 @@ def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: flo
             cap.release()
             return False
 
-        # Resize the frame to the desired thumbnail size
-        resized_frame = cv2.resize(frame, size, interpolation=cv2.INTER_LANCZOS4)
+        # Get original frame dimensions
+        original_height, original_width = frame.shape[:2]
+        target_width, target_height = size
+
+        # Calculate scaling factor to fit within target size while maintaining aspect ratio
+        scale = min(target_width / original_width, target_height / original_height)
+        
+        # Calculate new dimensions
+        new_width = int(original_width * scale)
+        new_height = int(original_height * scale)
+        
+        # Resize frame maintaining aspect ratio
+        resized_frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
+        
+        # Create black canvas of target size
+        canvas = np.zeros((target_height, target_width, 3), dtype=np.uint8)
+        
+        # Calculate position to center the resized frame
+        x_offset = (target_width - new_width) // 2
+        y_offset = (target_height - new_height) // 2
+        
+        # Place resized frame on canvas
+        canvas[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_frame
 
         # Save the thumbnail
-        cv2.imwrite(str(output_path), resized_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        cv2.imwrite(str(output_path), canvas, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
         cap.release()
         return True

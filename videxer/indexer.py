@@ -439,8 +439,8 @@ _INDEX_HTML = """<!DOCTYPE html>
   }
 
   .media { position: relative; display:block; padding:0; border:0; background:transparent; cursor:pointer; overflow: hidden; border-radius: 20px 20px 0 0; }
-  .thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #0a0a0a; display:block; }
-  .motion-thumb { width: 100%; height: 100%; object-fit: cover; background: #0a0a0a; position: absolute; top: 0; left: 0; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+  .thumb { width: 100%; aspect-ratio: 16/9; object-fit: contain; background: #0a0a0a; display:block; }
+  .motion-thumb { width: 100%; height: 100%; object-fit: contain; background: #0a0a0a; position: absolute; top: 0; left: 0; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
   .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.5) 100%); opacity: 0; transition: opacity .3s; }
   .media:hover .play { opacity: 1; }
   .play-icon { 
@@ -477,7 +477,7 @@ _INDEX_HTML = """<!DOCTYPE html>
   .container.list .card { display:flex; flex-direction: row; align-items: stretch; }
   .container.list .media { width: 260px; min-width:260px; border-radius: 20px 0 0 20px; }
   .container.list .directory-media { aspect-ratio: 16/9; }
-  .container.list .thumb { width: 100%; height: 100%; aspect-ratio: unset; object-fit: cover; }
+  .container.list .thumb { width: 100%; height: 100%; aspect-ratio: unset; object-fit: contain; }
   .container.list .content { flex: 1; }
 
   /* Accessibility helpers */
