@@ -766,6 +766,7 @@ _INDEX_HTML = """<!DOCTYPE html>
         currentPath = [];
         currentItems = allItems;
         search.value = '';
+        window.location.hash = '';
         apply();
       }
       
@@ -788,6 +789,7 @@ _INDEX_HTML = """<!DOCTYPE html>
         }
         
         search.value = '';
+        updateHash();
         apply();
       }
       
@@ -797,8 +799,50 @@ _INDEX_HTML = """<!DOCTYPE html>
           currentPath.push(dirName);
           currentItems = dir.children;
           search.value = '';
+          updateHash();
           apply();
         }
+      }
+      
+      function updateHash() {
+        // Update URL hash with current path
+        if (currentPath.length === 0) {
+          window.location.hash = '';
+        } else {
+          window.location.hash = '#' + currentPath.join('/');
+        }
+      }
+      
+      function navigateToPath(pathStr) {
+        // Navigate to a specific path from hash
+        if (!pathStr) {
+          navigateToRoot();
+          return;
+        }
+        
+        const segments = pathStr.split('/').filter(s => s.length > 0);
+        currentPath = [];
+        currentItems = allItems;
+        
+        for (const segment of segments) {
+          const dir = currentItems.find(item => item.type === 'directory' && item.name === segment);
+          if (dir && dir.children) {
+            currentPath.push(segment);
+            currentItems = dir.children;
+          } else {
+            // Path not found, stop here
+            break;
+          }
+        }
+        
+        search.value = '';
+        apply();
+      }
+      
+      function findMediaByPath(pathStr) {
+        // Find a media item by its full path
+        const flatItems = flattenAllItems(allItems);
+        return flatItems.find(item => item.path === pathStr);
       }
 
       function render(list) {
@@ -1092,10 +1136,34 @@ _INDEX_HTML = """<!DOCTYPE html>
           mediaEl.removeAttribute('src');
           mediaEl.load();
         }
+        
+        // Clear the media hash from URL
+        const hash = window.location.hash;
+        if (hash && hash !== '#') {
+          const mediaItem = findMediaByPath(hash.substring(1));
+          if (mediaItem) {
+            // Go back to the directory containing this media
+            const pathParts = mediaItem.path.split('/');
+            pathParts.pop(); // Remove filename
+            if (pathParts.length > 0) {
+              window.location.hash = '#' + pathParts.join('/');
+            } else {
+              window.location.hash = '';
+            }
+          }
+        }
       }
       closeBtn.addEventListener('click', close);
       modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
-      window.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+      window.addEventListener('keydown', (e) => { 
+        if (e.key === 'Escape') {
+          if (immersive.classList.contains('open')) {
+            closeImmersive();
+          } else if (modal.classList.contains('open')) {
+            close();
+          }
+        }
+      });
 
       // Immersive player elements
       const immersive = document.getElementById('immersive');
@@ -1244,15 +1312,44 @@ _INDEX_HTML = """<!DOCTYPE html>
         const media = immMedia.querySelector('video, audio');
         if (media) { try { media.pause(); } catch(e){} media.removeAttribute('src'); media.load && media.load(); }
         immersive.classList.remove('open');
+        
+        // Clear the media hash from URL
+        const hash = window.location.hash;
+        if (hash && hash !== '#') {
+          // If the hash was a media file path, revert to directory view
+          const mediaItem = findMediaByPath(hash.substring(1));
+          if (mediaItem) {
+            // Go back to the directory containing this media
+            const pathParts = mediaItem.path.split('/');
+            pathParts.pop(); // Remove filename
+            if (pathParts.length > 0) {
+              window.location.hash = '#' + pathParts.join('/');
+            } else {
+              window.location.hash = '';
+            }
+          }
+        }
       }
       immClose.addEventListener('click', closeImmersive);
 
       window.openPlayer = (item, title, type) => {
+        // Update hash with media path
+        if (item.path) {
+          window.location.hash = '#' + item.path;
+        }
         // Always use immersive view for consistent UI and quality control
         openImmersive(item, title, type);
       };
 
       window.openImageViewer = (src, title) => {
+        // For images, we need to find the item to get its path
+        const flatItems = flattenAllItems(allItems);
+        const item = flatItems.find(it => it.primary_media === src);
+        
+        if (item && item.path) {
+          window.location.hash = '#' + item.path;
+        }
+        
         if (isDesktop()) {
           modalTitle.textContent = title || 'Image';
           mediaEl.innerHTML = '<img class=\"modal-image\" alt=\"' + (title || 'Image') + '\">';
@@ -1260,10 +1357,38 @@ _INDEX_HTML = """<!DOCTYPE html>
           img.setAttribute('src', src);
           modal.classList.add('open');
         } else {
-          const item = { primary_media: src, media_type: 'image' };
-          openImmersive(item, title || 'Image', 'image');
+          const itemObj = item || { primary_media: src, media_type: 'image' };
+          openImmersive(itemObj, title || 'Image', 'image');
         }
       };
+      
+      // Handle hash changes (browser back/forward)
+      window.addEventListener('hashchange', () => {
+        const hash = window.location.hash.substring(1); // Remove the '#'
+        
+        // Check if it's a media file path
+        const mediaItem = findMediaByPath(hash);
+        if (mediaItem) {
+          // Open the media player
+          openPlayer(mediaItem, mediaItem.name || mediaItem.dir, mediaItem.media_type);
+        } else {
+          // It's a directory path
+          navigateToPath(hash);
+        }
+      });
+      
+      // On initial load, check if there's a hash and navigate to it
+      const initialHash = window.location.hash.substring(1);
+      if (initialHash) {
+        const mediaItem = findMediaByPath(initialHash);
+        if (mediaItem) {
+          // It's a media file, open it
+          openPlayer(mediaItem, mediaItem.name || mediaItem.dir, mediaItem.media_type);
+        } else {
+          // It's a directory, navigate to it
+          navigateToPath(initialHash);
+        }
+      }
     }
 
     window.addEventListener('DOMContentLoaded', load);
