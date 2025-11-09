@@ -665,6 +665,7 @@ _INDEX_HTML = """<!DOCTYPE html>
     .immersive-media { 
       width: 100%; 
       height: auto;
+      max-height: 50vh;
       aspect-ratio: 16/9;
       border-radius: 0;
     }
