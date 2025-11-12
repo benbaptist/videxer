@@ -734,6 +734,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       let currentPath = []; // Stack of directory names
       let currentItems = allItems; // Items in current view
       let searchIndex = data.search_index || { subtitle_terms: {}, name_terms: {}, description_terms: {}, item_map: [] };
+      let subtitlesLoading = false; // Track if we're already loading subtitles
       let sortKey = 'date'; // alpha | size | date | type
       let sortDir = 'desc'; // asc | desc
       let viewMode = 'grid'; // grid | list
@@ -1051,15 +1052,19 @@ _INDEX_HTML = """<!DOCTYPE html>
           // When searching, flatten all items and search across entire library
           const allFlatItems = flattenAllItems(allItems);
           
-          // If subtitle index isn't loaded, fetch it in the background
+          // If subtitle index isn't loaded, fetch it in the background (only once)
           if (!searchIndex.subtitle_terms) searchIndex.subtitle_terms = {};
-          if (Object.keys(searchIndex.subtitle_terms).length === 0) {
+          if (Object.keys(searchIndex.subtitle_terms).length === 0 && !subtitlesLoading) {
+            subtitlesLoading = true;
             fetchJSON('index.subtitles.json')
               .then(subs => {
                 searchIndex.subtitle_terms = subs.subtitle_terms || {};
                 apply();
               })
-              .catch(() => {});
+              .catch(() => {
+                // If subtitle index doesn't exist or fails to load, that's okay
+                subtitlesLoading = false;
+              });
           }
           
           // Use search index for efficient filtering
