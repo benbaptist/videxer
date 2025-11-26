@@ -811,7 +811,7 @@ _INDEX_HTML = """<!DOCTYPE html>
         if (currentPath.length === 0) {
           window.location.hash = '';
         } else {
-          window.location.hash = '#' + currentPath.join('/');
+          window.location.hash = '#' + currentPath.map(encodeURIComponent).join('/');
         }
       }
       
@@ -822,7 +822,7 @@ _INDEX_HTML = """<!DOCTYPE html>
           return;
         }
         
-        const segments = pathStr.split('/').filter(s => s.length > 0);
+        const segments = pathStr.split('/').filter(s => s.length > 0).map(decodeURIComponent);
         currentPath = [];
         currentItems = allItems;
         
@@ -1376,7 +1376,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       
       // Handle hash changes (browser back/forward)
       window.addEventListener('hashchange', () => {
-        const hash = window.location.hash.substring(1); // Remove the '#'
+        const hash = decodeURIComponent(window.location.hash.substring(1)); // Remove the '#' and decode
         
         // Check if it's a media file path
         const mediaItem = findMediaByPath(hash);
@@ -1390,7 +1390,7 @@ _INDEX_HTML = """<!DOCTYPE html>
       });
       
       // On initial load, check if there's a hash and navigate to it
-      const initialHash = window.location.hash.substring(1);
+      const initialHash = decodeURIComponent(window.location.hash.substring(1));
       if (initialHash) {
         const mediaItem = findMediaByPath(initialHash);
         if (mediaItem) {
