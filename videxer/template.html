@@ -1402,10 +1402,16 @@
       }
       immClose.addEventListener('click', closeImmersive);
 
+      // Track if we're programmatically changing the hash to avoid double-opening
+      let suppressHashChange = false;
+
       window.openPlayer = (item, title, type) => {
         // Update hash with media path
         if (item.path) {
+          suppressHashChange = true;
           window.location.hash = '#' + item.path;
+          // Reset flag after a small delay to allow hashchange to fire and be ignored
+          setTimeout(() => { suppressHashChange = false; }, 10);
         }
         // Always use immersive view for consistent UI and quality control
         openImmersive(item, title, type);
@@ -1434,6 +1440,11 @@
       
       // Handle hash changes (browser back/forward)
       window.addEventListener('hashchange', () => {
+        // Ignore hash changes that we triggered ourselves
+        if (suppressHashChange) {
+          return;
+        }
+        
         const hash = decodeURIComponent(window.location.hash.substring(1)); // Remove the '#' and decode
         
         // Check if it's a media file path
