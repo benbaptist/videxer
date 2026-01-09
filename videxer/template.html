@@ -400,69 +400,61 @@
       flex-shrink: 0; 
       height: auto; 
       max-height: 50vh;
-      padding: 24px; 
+      padding: 0;
       border-left: none;
       background: transparent;
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
+      overflow: hidden;
+      display: flex;
+      flex-direction: row;
+      gap: 0;
+    }
+    
+    .immersive-info > div:first-child {
+      flex: 1;
+      padding: 24px;
       overflow-y: auto;
     }
   }
 
-  /* Transcript viewer styles */
+  /* Transcript viewer styles - Mobile first */
   .transcript-panel {
     margin-top: 20px;
     background: var(--panel);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
-    border-radius: 16px;
+    border-radius: 12px;
     overflow: hidden;
   }
   
   .transcript-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 20px;
-    cursor: pointer;
-    user-select: none;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--border);
   }
   
-  .transcript-header:hover {
-    background: rgba(30, 30, 30, 0.5);
-  }
-  
   .transcript-title {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  
-  .transcript-toggle {
-    font-size: 20px;
-    transition: transform 0.3s ease;
-  }
-  
-  .transcript-toggle.open {
-    transform: rotate(180deg);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
   }
   
   .transcript-search {
-    padding: 12px 20px;
+    padding: 8px 12px;
     border-bottom: 1px solid var(--border);
   }
   
   .transcript-search input {
     width: 100%;
-    padding: 10px 14px;
+    padding: 6px 10px;
     background: rgba(20, 20, 20, 0.6);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 8px;
     color: var(--text);
-    font-size: 14px;
+    font-size: 13px;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
   }
   
   .transcript-search input:focus {
@@ -471,28 +463,23 @@
   }
   
   .transcript-body {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.3s ease;
-  }
-  
-  .transcript-body.open {
-    max-height: 400px;
     overflow-y: auto;
+    max-height: 300px;
   }
   
   .transcript-segments {
-    padding: 8px;
+    padding: 4px;
   }
   
   .transcript-segment {
     display: flex;
-    gap: 12px;
-    padding: 10px 12px;
-    margin-bottom: 4px;
-    border-radius: 12px;
+    gap: 10px;
+    padding: 6px 8px;
+    margin-bottom: 2px;
+    border-radius: 6px;
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition: background 0.15s ease;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
   }
   
   .transcript-segment:hover {
@@ -501,26 +488,93 @@
   
   .transcript-segment.active {
     background: rgba(96, 165, 250, 0.15);
-    border: 1px solid rgba(96, 165, 250, 0.3);
+    border-left: 2px solid var(--accent);
   }
   
   .transcript-segment.hidden {
     display: none;
   }
   
+  /* Desktop: transcript as right panel */
+  @media (min-width: 1024px) {
+    .transcript-panel {
+      margin-top: 0;
+      width: 35%;
+      max-width: 450px;
+      min-width: 300px;
+      background: rgba(15, 15, 15, 0.8);
+      border-radius: 0;
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    
+    .transcript-header {
+      padding: 12px 14px;
+      flex-shrink: 0;
+    }
+    
+    .transcript-title {
+      font-size: 11px;
+    }
+    
+    .transcript-search {
+      padding: 8px 10px;
+      flex-shrink: 0;
+    }
+    
+    .transcript-search input {
+      padding: 5px 8px;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+    
+    .transcript-body {
+      flex: 1;
+      overflow-y: auto;
+      max-height: none;
+    }
+    
+    .transcript-segments {
+      padding: 2px;
+    }
+    
+    .transcript-segment {
+      padding: 5px 8px;
+      margin-bottom: 1px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+  }
+  
   .transcript-timestamp {
     flex-shrink: 0;
     color: var(--accent);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
-    min-width: 70px;
+    min-width: 50px;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
   }
   
   .transcript-text {
     flex: 1;
-    font-size: 14px;
+    font-size: 13px;
     line-height: 1.5;
     color: var(--text);
+  }
+  
+  @media (min-width: 1024px) {
+    .transcript-timestamp {
+      font-size: 11px;
+      min-width: 45px;
+    }
+    
+    .transcript-text {
+      font-size: 12px;
+      line-height: 1.4;
+    }
   }
   
   .transcript-text mark {
@@ -1213,27 +1267,22 @@
           const panel = document.createElement('div');
           panel.className = 'transcript-panel';
           
-          // Header with toggle
+          // Header
           const header = document.createElement('div');
           header.className = 'transcript-header';
           
           const titleDiv = document.createElement('div');
           titleDiv.className = 'transcript-title';
-          titleDiv.innerHTML = '📝 Transcript <span class="badge" style="margin-left: 8px;">' + subtitle.text.length + ' segments</span>';
-          
-          const toggle = document.createElement('span');
-          toggle.className = 'transcript-toggle';
-          toggle.textContent = '▼';
+          titleDiv.textContent = 'Transcript (' + subtitle.text.length + ')';
           
           header.appendChild(titleDiv);
-          header.appendChild(toggle);
           
           // Search box
           const searchBox = document.createElement('div');
           searchBox.className = 'transcript-search';
           const searchInput = document.createElement('input');
           searchInput.type = 'text';
-          searchInput.placeholder = 'Search transcript...';
+          searchInput.placeholder = 'Filter...';
           searchBox.appendChild(searchInput);
           
           // Body with segments
@@ -1288,14 +1337,6 @@
           panel.appendChild(body);
           
           container.appendChild(panel);
-          
-          // Toggle functionality
-          let isOpen = false;
-          header.addEventListener('click', () => {
-            isOpen = !isOpen;
-            body.classList.toggle('open', isOpen);
-            toggle.classList.toggle('open', isOpen);
-          });
           
           // Search functionality
           searchInput.addEventListener('input', () => {
