@@ -21,3 +21,6 @@ videxer = "videxer.cli:cli"
 
 [tool.setuptools.packages]
 find = {}
+
+[tool.setuptools.package-data]
+videxer = ["template.html"]
