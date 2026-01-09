@@ -217,6 +217,17 @@ def _build_directory_structure(current_dir: Path, root: Path, generate_thumbnail
         if entry.is_dir() and not entry.name.startswith('.'):
             subdirs.append(entry)
     
+    # Load metadata.json for the current directory if it exists
+    current_metadata = None
+    current_metadata_path = current_dir / "metadata.json"
+    if current_metadata_path.exists():
+        try:
+            import json
+            with open(current_metadata_path, "r", encoding="utf-8") as f:
+                current_metadata = json.load(f)
+        except Exception as e:
+            log.error(f"Failed to load metadata from {current_metadata_path}: {e}")
+    
     # Process each media group as a media item
     for base_name, files in sorted(media_groups.items()):
         if 'media' in files:
@@ -231,10 +242,29 @@ def _build_directory_structure(current_dir: Path, root: Path, generate_thumbnail
                 generate_transcodes
             )
             if media_item:
+                # Apply metadata.json if available and this is the only media file in dir
+                if current_metadata and len(media_groups) == 1:
+                    if current_metadata.get('name'):
+                        media_item['name'] = current_metadata['name']
+                    if current_metadata.get('created_time'):
+                        media_item['created_time'] = current_metadata['created_time']
+                    if current_metadata.get('description'):
+                        media_item['description'] = current_metadata['description']
                 items.append(media_item)
     
     # Process subdirectories
     for subdir in subdirs:
+        # Load metadata.json for this directory if it exists
+        metadata = None
+        metadata_path = subdir / "metadata.json"
+        if metadata_path.exists():
+            try:
+                import json
+                with open(metadata_path, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+            except Exception as e:
+                log.error(f"Failed to load metadata from {metadata_path}: {e}")
+        
         # Recursively get contents of subdirectory
         subdir_contents = _build_directory_structure(subdir, root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
         
@@ -248,8 +278,16 @@ def _build_directory_structure(current_dir: Path, root: Path, generate_thumbnail
         if should_flatten:
             # Flatten: promote the media item to current level with directory name
             media_item = media_items_in_subdir[0]
-            # Update the name to use the directory name instead
-            media_item['name'] = subdir.name
+            # Apply metadata.json if available, otherwise use directory name
+            if metadata:
+                media_item['name'] = metadata.get('name', subdir.name)
+                if metadata.get('created_time'):
+                    media_item['created_time'] = metadata['created_time']
+                if metadata.get('description'):
+                    media_item['description'] = metadata['description']
+            else:
+                # Update the name to use the directory name instead
+                media_item['name'] = subdir.name
             items.append(media_item)
         elif subdir_contents:
             # Keep as directory with children
@@ -259,6 +297,14 @@ def _build_directory_structure(current_dir: Path, root: Path, generate_thumbnail
                 'path': str(subdir.relative_to(root)),
                 'children': subdir_contents
             }
+            # Apply metadata to directory item if available
+            if metadata:
+                if metadata.get('name'):
+                    dir_item['name'] = metadata['name']
+                if metadata.get('created_time'):
+                    dir_item['created_time'] = metadata['created_time']
+                if metadata.get('description'):
+                    dir_item['description'] = metadata['description']
             items.append(dir_item)
         # else: empty directory, skip it
     
