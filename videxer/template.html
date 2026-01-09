@@ -399,13 +399,142 @@
       width: 100%; 
       flex-shrink: 0; 
       height: auto; 
+      max-height: 50vh;
       padding: 24px; 
       border-left: none;
       background: transparent;
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
-      overflow: visible;
+      overflow-y: auto;
     }
+  }
+
+  /* Transcript viewer styles */
+  .transcript-panel {
+    margin-top: 20px;
+    background: var(--panel);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  
+  .transcript-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .transcript-header:hover {
+    background: rgba(30, 30, 30, 0.5);
+  }
+  
+  .transcript-title {
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .transcript-toggle {
+    font-size: 20px;
+    transition: transform 0.3s ease;
+  }
+  
+  .transcript-toggle.open {
+    transform: rotate(180deg);
+  }
+  
+  .transcript-search {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .transcript-search input {
+    width: 100%;
+    padding: 10px 14px;
+    background: rgba(20, 20, 20, 0.6);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text);
+    font-size: 14px;
+  }
+  
+  .transcript-search input:focus {
+    outline: 2px solid rgba(96, 165, 250, 0.5);
+    outline-offset: 2px;
+  }
+  
+  .transcript-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+  }
+  
+  .transcript-body.open {
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  
+  .transcript-segments {
+    padding: 8px;
+  }
+  
+  .transcript-segment {
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px;
+    margin-bottom: 4px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+  }
+  
+  .transcript-segment:hover {
+    background: rgba(40, 40, 40, 0.6);
+  }
+  
+  .transcript-segment.active {
+    background: rgba(96, 165, 250, 0.15);
+    border: 1px solid rgba(96, 165, 250, 0.3);
+  }
+  
+  .transcript-segment.hidden {
+    display: none;
+  }
+  
+  .transcript-timestamp {
+    flex-shrink: 0;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 70px;
+  }
+  
+  .transcript-text {
+    flex: 1;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  
+  .transcript-text mark {
+    background: rgba(255, 235, 59, 0.3);
+    color: var(--text);
+    border-radius: 3px;
+    padding: 0 2px;
+  }
+  
+  .transcript-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
   }
   </style>
   <script>
@@ -1038,8 +1167,213 @@
         if (links.children.length) wrap.appendChild(links);
         immInfo.appendChild(wrap);
 
+        // Load and render transcript if subtitles are available (check for existing transcript to prevent duplicates)
+        if (item.has_subtitles && item.path && !immInfo.querySelector('.transcript-panel')) {
+          console.log('Loading transcript for:', item.path);
+          loadTranscript(item.path, immInfo, type);
+        } else if (item.has_subtitles && immInfo.querySelector('.transcript-panel')) {
+          console.log('Transcript already loaded for:', item.path);
+        } else {
+          console.log('No subtitles available for this item:', item);
+        }
+
         immersive.classList.add('open');
         updateImmersiveOrientation();
+      }
+
+      // Global subtitle data cache
+      let subtitleDataCache = null;
+
+      async function loadTranscript(itemPath, container, mediaType) {
+        console.log('loadTranscript called with:', itemPath);
+        try {
+          // Load subtitle data if not already cached
+          if (!subtitleDataCache) {
+            console.log('Fetching subtitle data...');
+            subtitleDataCache = await fetchJSON('index.subtitles.data.json');
+            console.log('Subtitle data loaded:', subtitleDataCache);
+          }
+
+          const subtitles = subtitleDataCache[itemPath];
+          console.log('Subtitles for', itemPath, ':', subtitles);
+          
+          if (!subtitles || subtitles.length === 0) {
+            console.log('No subtitle data found for this path');
+            return;
+          }
+
+          // For now, use the first subtitle track (could be extended to support multiple languages)
+          const subtitle = subtitles[0];
+          
+          if (!subtitle.text || subtitle.text.length === 0) {
+            return;
+          }
+
+          // Create transcript panel
+          const panel = document.createElement('div');
+          panel.className = 'transcript-panel';
+          
+          // Header with toggle
+          const header = document.createElement('div');
+          header.className = 'transcript-header';
+          
+          const titleDiv = document.createElement('div');
+          titleDiv.className = 'transcript-title';
+          titleDiv.innerHTML = '📝 Transcript <span class="badge" style="margin-left: 8px;">' + subtitle.text.length + ' segments</span>';
+          
+          const toggle = document.createElement('span');
+          toggle.className = 'transcript-toggle';
+          toggle.textContent = '▼';
+          
+          header.appendChild(titleDiv);
+          header.appendChild(toggle);
+          
+          // Search box
+          const searchBox = document.createElement('div');
+          searchBox.className = 'transcript-search';
+          const searchInput = document.createElement('input');
+          searchInput.type = 'text';
+          searchInput.placeholder = 'Search transcript...';
+          searchBox.appendChild(searchInput);
+          
+          // Body with segments
+          const body = document.createElement('div');
+          body.className = 'transcript-body';
+          
+          const segments = document.createElement('div');
+          segments.className = 'transcript-segments';
+          
+          // Render segments
+          subtitle.text.forEach((text, index) => {
+            const timestamp = subtitle.timestamps[index] || '';
+            
+            const segmentDiv = document.createElement('div');
+            segmentDiv.className = 'transcript-segment';
+            segmentDiv.dataset.index = index;
+            segmentDiv.dataset.text = text.toLowerCase();
+            
+            const timestampDiv = document.createElement('div');
+            timestampDiv.className = 'transcript-timestamp';
+            timestampDiv.textContent = formatTranscriptTime(timestamp);
+            
+            const textDiv = document.createElement('div');
+            textDiv.className = 'transcript-text';
+            textDiv.textContent = text;
+            
+            segmentDiv.appendChild(timestampDiv);
+            segmentDiv.appendChild(textDiv);
+            
+            // Click to jump to timestamp
+            segmentDiv.addEventListener('click', () => {
+              const mediaElement = immMedia.querySelector('video, audio');
+              if (mediaElement && timestamp) {
+                const seconds = parseSubtitleTimestamp(timestamp);
+                mediaElement.currentTime = seconds;
+                mediaElement.play().catch(() => {});
+                
+                // Highlight active segment
+                segments.querySelectorAll('.transcript-segment').forEach(s => s.classList.remove('active'));
+                segmentDiv.classList.add('active');
+              }
+            });
+            
+            segments.appendChild(segmentDiv);
+          });
+          
+          body.appendChild(segments);
+          
+          // Assemble panel
+          panel.appendChild(header);
+          panel.appendChild(searchBox);
+          panel.appendChild(body);
+          
+          container.appendChild(panel);
+          
+          // Toggle functionality
+          let isOpen = false;
+          header.addEventListener('click', () => {
+            isOpen = !isOpen;
+            body.classList.toggle('open', isOpen);
+            toggle.classList.toggle('open', isOpen);
+          });
+          
+          // Search functionality
+          searchInput.addEventListener('input', () => {
+            const query = searchInput.value.toLowerCase().trim();
+            
+            segments.querySelectorAll('.transcript-segment').forEach(segment => {
+              const text = segment.dataset.text;
+              
+              if (!query || text.includes(query)) {
+                segment.classList.remove('hidden');
+                
+                // Highlight matching text
+                if (query) {
+                  const textDiv = segment.querySelector('.transcript-text');
+                  const originalText = subtitle.text[segment.dataset.index];
+                  const regex = new RegExp('(' + escapeRegex(query) + ')', 'gi');
+                  textDiv.innerHTML = originalText.replace(regex, '<mark>$1</mark>');
+                } else {
+                  const textDiv = segment.querySelector('.transcript-text');
+                  textDiv.textContent = subtitle.text[segment.dataset.index];
+                }
+              } else {
+                segment.classList.add('hidden');
+              }
+            });
+          });
+          
+        } catch (error) {
+          console.warn('Failed to load transcript:', error);
+        }
+      }
+
+      function formatTranscriptTime(timestamp) {
+        // Convert timestamp from SRT format (00:00:01,000) or VTT format (00:00:01.000) to display format (0:01)
+        if (!timestamp) return '';
+        
+        // Handle both comma and period as decimal separator
+        const normalized = timestamp.replace(',', '.');
+        const parts = normalized.split(':');
+        
+        if (parts.length === 3) {
+          const hours = parseInt(parts[0], 10);
+          const minutes = parseInt(parts[1], 10);
+          const seconds = parseInt(parts[2].split('.')[0], 10);
+          
+          if (hours > 0) {
+            return hours + ':' + minutes.toString().padStart(2, '0') + ':' + seconds.toString().padStart(2, '0');
+          } else {
+            return minutes + ':' + seconds.toString().padStart(2, '0');
+          }
+        }
+        
+        return timestamp;
+      }
+
+      function parseSubtitleTimestamp(timestamp) {
+        // Convert SRT/VTT timestamp to seconds
+        if (!timestamp) return 0;
+        
+        // Handle both comma and period as decimal separator
+        const normalized = timestamp.replace(',', '.');
+        const parts = normalized.split(':');
+        
+        if (parts.length === 3) {
+          const hours = parseInt(parts[0], 10);
+          const minutes = parseInt(parts[1], 10);
+          const secondsParts = parts[2].split('.');
+          const seconds = parseInt(secondsParts[0], 10);
+          const milliseconds = secondsParts[1] ? parseInt(secondsParts[1], 10) / 1000 : 0;
+          
+          return hours * 3600 + minutes * 60 + seconds + milliseconds;
+        }
+        
+        return 0;
+      }
+
+      function escapeRegex(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       }
 
       function closeImmersive() {

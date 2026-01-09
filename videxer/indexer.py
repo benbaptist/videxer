@@ -52,6 +52,27 @@ def _build_subtitle_index(items: List[Dict]) -> Dict:
   return subtitle_index
 
 
+def _build_subtitle_data(items: List[Dict]) -> Dict:
+  """Build subtitle data mapping from item paths to their subtitle details.
+  
+  Returns a dictionary mapping item paths to subtitle data for client-side display.
+  """
+  subtitle_data = {}
+  for item in items:
+    if "subtitles" in item and item.get("path"):
+      # Store subtitles keyed by the media item's path
+      subtitle_data[item["path"]] = []
+      for subtitle in item["subtitles"]:
+        # Keep text and timestamps but remove the combined text
+        subtitle_data[item["path"]].append({
+          "file": subtitle.get("file"),
+          "language": subtitle.get("language"),
+          "text": subtitle.get("text", []),
+          "timestamps": subtitle.get("timestamps", [])
+        })
+  return subtitle_data
+
+
 def _add_to_search_index(index_dict: Dict, text: str, item_idx: int):
     """Add text to search index, splitting into words and handling duplicates."""
     import re
@@ -86,6 +107,21 @@ def _flatten_items(items: List[Dict]) -> List[Dict]:
             flat_items.extend(_flatten_items(item['children']))
     
     return flat_items
+
+
+def _strip_subtitle_data_from_hierarchy(items: List[Dict]) -> None:
+    """Recursively strip subtitle data from hierarchical items, replacing with has_subtitles flag.
+    
+    Modifies items in place.
+    """
+    for item in items:
+        if item.get('type') == 'media' and 'subtitles' in item:
+            has = bool(item.get('subtitles'))
+            item.pop('subtitles', None)
+            if has:
+                item['has_subtitles'] = True
+        elif item.get('type') == 'directory' and 'children' in item:
+            _strip_subtitle_data_from_hierarchy(item['children'])
 
 
 def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> Dict:
@@ -123,16 +159,14 @@ def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_t
     cleanup_old_transcodes(root, current_transcodes)
     log.debug("Cleaned up old transcodes (if any)")
 
-  # Build both indexes, then strip bulky subtitle payloads from items
+  # Build both indexes and subtitle data, then strip bulky subtitle payloads from items
   base_search_index = _build_base_search_index(processed_items)
   subtitle_index = _build_subtitle_index(processed_items)
+  subtitle_data = _build_subtitle_data(processed_items)
 
-  for it in processed_items:
-    if "subtitles" in it:
-      has = bool(it.get("subtitles"))
-      it.pop("subtitles", None)
-      if has:
-        it["has_subtitles"] = True
+  # Strip subtitle data from hierarchical structure (keep only has_subtitles flag)
+  _strip_subtitle_data_from_hierarchy(hierarchical_items)
+  
   log.info(f"Indexed items: {len(processed_items)} (with subtitles indexed separately)")
 
   return {
@@ -141,6 +175,7 @@ def build_index(root: Path, generate_thumbnails: bool = False, generate_motion_t
     "total_items": len(processed_items),
     "search_index": base_search_index,
     "_subtitle_index": subtitle_index,
+    "_subtitle_data": subtitle_data,
   }
 
 
@@ -256,18 +291,25 @@ def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: O
 
   idx = build_index(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
 
-  # Write JSON (exclude the private subtitle index field)
+  # Write JSON (exclude the private subtitle index and data fields)
   with open(json_path, "w", encoding="utf-8") as f:
     data = dict(idx)
     data.pop("_subtitle_index", None)
+    data.pop("_subtitle_data", None)
     json.dump(data, f, ensure_ascii=False, indent=2)
   log.debug(f"Wrote JSON index: {json_path}")
 
-  # Also write a separate subtitles index for lazy loading on the client
+  # Write separate subtitles index for search
   subs_path = json_path.with_name("index.subtitles.json")
   with open(subs_path, "w", encoding="utf-8") as f:
     json.dump(idx.get("_subtitle_index", {"subtitle_terms": {}}), f, ensure_ascii=False, indent=2)
   log.debug(f"Wrote subtitles index: {subs_path}")
+
+  # Write separate subtitles data for transcript viewing
+  subs_data_path = json_path.with_name("index.subtitles.data.json")
+  with open(subs_data_path, "w", encoding="utf-8") as f:
+    json.dump(idx.get("_subtitle_data", {}), f, ensure_ascii=False, indent=2)
+  log.debug(f"Wrote subtitles data: {subs_data_path}")
 
   # Write HTML (load template from file)
   template_path = Path(__file__).parent / "template.html"
