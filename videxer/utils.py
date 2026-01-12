@@ -546,6 +546,25 @@ def _detect_subtitle_language(filename: str) -> str:
     return 'unknown'
 
 
+def _check_videotoolbox_available() -> bool:
+    """Check if h264_videotoolbox encoder is available.
+    
+    Returns:
+        True if h264_videotoolbox is available, False otherwise
+    """
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['ffmpeg', '-hide_banner', '-encoders'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        return 'h264_videotoolbox' in result.stdout
+    except Exception:
+        return False
+
+
 def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
     """Generate a web-optimized transcoded version of a video file.
 
@@ -558,22 +577,32 @@ def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
     """
     log = get_logger()
     try:
-        log.info(f"Transcoding start: {input_path} -> {output_path}")
+        # Check if hardware encoder is available
+        use_videotoolbox = _check_videotoolbox_available()
+        encoder = 'h264_videotoolbox' if use_videotoolbox else 'libx264'
+        
+        log.info(f"Transcoding start: {input_path} -> {output_path} (encoder: {encoder})")
         # Web-optimized settings: low resolution, low bitrate, fast encoding
         stream = ffmpeg.input(str(input_path))
-        stream = ffmpeg.output(
-            stream,
-            str(output_path),
-            vcodec='libx264',  # H.264 for broad compatibility
-            acodec='aac',      # AAC for audio
-            preset='fast',     # Fast encoding
-            crf=28,            # Higher CRF = lower quality, smaller file
-            vf='scale=-2:720', # Scale to 720p height, maintain aspect ratio
-            maxrate='2M',      # Maximum bitrate 2Mbps
-            bufsize='4M',      # Buffer size
-            audio_bitrate='128k',  # Low audio bitrate
-            movflags='faststart'    # Enable fast start for web playback
-        )
+        
+        output_params = {
+            'vcodec': encoder,
+            'acodec': 'aac',
+            'vf': 'scale=-2:720',  # Scale to 720p height, maintain aspect ratio
+            'maxrate': '2M',       # Maximum bitrate 2Mbps
+            'bufsize': '4M',       # Buffer size
+            'audio_bitrate': '128k',  # Low audio bitrate
+            'movflags': 'faststart'   # Enable fast start for web playback
+        }
+        
+        # Add encoder-specific settings
+        if use_videotoolbox:
+            output_params['b:v'] = '2M'  # Target video bitrate for videotoolbox
+        else:
+            output_params['preset'] = 'fast'  # Fast encoding preset for libx264
+            output_params['crf'] = 28  # Higher CRF = lower quality, smaller file
+        
+        stream = ffmpeg.output(stream, str(output_path), **output_params)
         ffmpeg.run(stream, overwrite_output=True, quiet=True)
         ok = output_path.exists()
         if ok:
@@ -1310,21 +1339,29 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
                 segment_path = Path(temp_dir) / f"segment_{i:02d}.mp4"
 
                 # Extract segment with ffmpeg
+                use_videotoolbox = _check_videotoolbox_available()
+                encoder = 'h264_videotoolbox' if use_videotoolbox else 'libx264'
+                
                 stream = ffmpeg.input(str(video_path), ss=timestamp, t=segment_duration)
-                stream = ffmpeg.output(
-                    stream,
-                    str(segment_path),
-                    vcodec='libx264',
-                    acodec='aac',
-                    preset='ultrafast',  # Fast encoding for thumbnails
-                    crf=32,            # Higher CRF for smaller files
-                    vf=f'scale={size[0]}:{size[1]}:force_original_aspect_ratio=decrease,pad={size[0]}:{size[1]}:(ow-iw)/2:(oh-ih)/2',
-                    r=fps,             # Frame rate
-                    audio_bitrate='64k',
-                    maxrate='500k',   # Low bitrate for thumbnails
-                    bufsize='1M',
-                    movflags='faststart'
-                )
+                
+                output_params = {
+                    'vcodec': encoder,
+                    'acodec': 'aac',
+                    'vf': f'scale={size[0]}:{size[1]}:force_original_aspect_ratio=decrease,pad={size[0]}:{size[1]}:(ow-iw)/2:(oh-ih)/2',
+                    'r': fps,
+                    'audio_bitrate': '64k',
+                    'maxrate': '500k',
+                    'bufsize': '1M',
+                    'movflags': 'faststart'
+                }
+                
+                if use_videotoolbox:
+                    output_params['b:v'] = '500k'
+                else:
+                    output_params['preset'] = 'ultrafast'
+                    output_params['crf'] = 32
+                
+                stream = ffmpeg.output(stream, str(segment_path), **output_params)
                 ffmpeg.run(stream, overwrite_output=True, quiet=True)
                 segment_files.append(segment_path)
 
@@ -1338,21 +1375,29 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
                     f.write(f"file '{segment}'\n")
 
             # Concatenate all segments into final motion thumbnail
+            use_videotoolbox = _check_videotoolbox_available()
+            encoder = 'h264_videotoolbox' if use_videotoolbox else 'libx264'
+            
             stream = ffmpeg.input(str(concat_file), format='concat', safe=0)
-            stream = ffmpeg.output(
-                stream,
-                str(output_path),
-                vcodec='libx264',
-                acodec='aac',
-                preset='fast',
-                crf=28,            # Good quality/size balance
-                r=fps,
-                audio_bitrate='64k',
-                maxrate='800k',    # Reasonable bitrate for motion thumbnails
-                bufsize='1.6M',
-                movflags='faststart',
-                pix_fmt='yuv420p'  # Ensure compatibility
-            )
+            
+            output_params = {
+                'vcodec': encoder,
+                'acodec': 'aac',
+                'r': fps,
+                'audio_bitrate': '64k',
+                'maxrate': '800k',
+                'bufsize': '1.6M',
+                'movflags': 'faststart',
+                'pix_fmt': 'yuv420p'
+            }
+            
+            if use_videotoolbox:
+                output_params['b:v'] = '800k'
+            else:
+                output_params['preset'] = 'fast'
+                output_params['crf'] = 28
+            
+            stream = ffmpeg.output(stream, str(output_path), **output_params)
             ffmpeg.run(stream, overwrite_output=True, quiet=True)
 
         return output_path.exists()
