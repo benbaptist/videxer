@@ -537,7 +537,7 @@
     }
     
     .transcript-segments {
-      padding: 2px;
+      padding: 2px 2px 20px 2px;
     }
     
     .transcript-segment {
@@ -1357,6 +1357,43 @@
             });
           });
           
+          // Auto-scroll and highlight transcript during playback
+          const mediaElement = immMedia.querySelector('video, audio');
+          if (mediaElement) {
+            mediaElement.addEventListener('timeupdate', () => {
+              const currentTime = mediaElement.currentTime;
+              
+              // Find the active segment based on current playback time
+              let activeSegment = null;
+              for (let i = 0; i < subtitleEntries.length; i++) {
+                const entry = subtitleEntries[i];
+                const startTime = parseSubtitleTimestamp(entry.start);
+                const endTime = parseSubtitleTimestamp(entry.end);
+                
+                if (currentTime >= startTime && currentTime <= endTime) {
+                  activeSegment = segments.children[i];
+                  break;
+                }
+              }
+              
+              // Update active class
+              segments.querySelectorAll('.transcript-segment').forEach(s => s.classList.remove('active'));
+              
+              if (activeSegment && !activeSegment.classList.contains('hidden')) {
+                activeSegment.classList.add('active');
+                
+                // Auto-scroll to keep active segment visible
+                const bodyRect = body.getBoundingClientRect();
+                const segmentRect = activeSegment.getBoundingClientRect();
+                
+                // Check if segment is out of view
+                if (segmentRect.top < bodyRect.top || segmentRect.bottom > bodyRect.bottom) {
+                  activeSegment.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }
+            });
+          }
+          
         } catch (error) {
           console.warn('Failed to load transcript:', error);
         }
@@ -1465,7 +1502,7 @@
         if (media) { try { media.pause(); } catch(e){} media.removeAttribute('src'); media.load && media.load(); }
         immersive.classList.remove('open');
         
-        // Clear the media hash from URL
+        // Update hash to directory path when closing
         const hash = window.location.hash;
         if (hash && hash !== '#') {
           // If the hash was a media file path, revert to directory view
@@ -1474,11 +1511,15 @@
             // Go back to the directory containing this media
             const pathParts = mediaItem.path.split('/');
             pathParts.pop(); // Remove filename
+            suppressHashChange = true;
             if (pathParts.length > 0) {
               window.location.hash = '#' + pathParts.join('/');
             } else {
               window.location.hash = '';
             }
+            setTimeout(() => { suppressHashChange = false; }, 10);
+            // Manually navigate since we're suppressing hashchange
+            navigateToPath(pathParts.join('/'));
           }
         }
       }
