@@ -6,7 +6,7 @@ from typing import Optional
 import click
 
 from .indexer import write_index_files
-from .utils import ensure_dir, detect_media_structure, MediaStructure, load_config, save_config, merge_config_with_args, setup_logging, get_logger
+from .utils import ensure_dir, detect_media_structure, MediaStructure, load_config, save_config, merge_config_with_args, setup_logging, get_logger, _get_hardware_accelerator
 
 
 def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
@@ -98,6 +98,13 @@ def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Pa
     # Setup logging to output dir and stdout
     setup_logging(output_dir, level=log_level)
     logger = get_logger()
+
+    # Log hardware acceleration status
+    hw_accel = _get_hardware_accelerator()
+    if hw_accel:
+        logger.info(f"Hardware acceleration enabled: {hw_accel.name} (encoder: {hw_accel.encoder})")
+    else:
+        logger.info("Hardware acceleration not available - using software encoding")
 
     logger.info(f"Scanning media directory: {input_dir}")
     structure = detect_media_structure(input_dir)

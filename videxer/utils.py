@@ -546,11 +546,49 @@ def _detect_subtitle_language(filename: str) -> str:
     return 'unknown'
 
 
-def _check_videotoolbox_available() -> bool:
-    """Check if h264_videotoolbox encoder is available.
+class HardwareAccelerator:
+    """Hardware acceleration configuration."""
+    def __init__(self, name: str, encoder: str, decoder: Optional[str] = None, 
+                 hwaccel: Optional[str] = None, priority: int = 0):
+        self.name = name
+        self.encoder = encoder
+        self.decoder = decoder
+        self.hwaccel = hwaccel
+        self.priority = priority
+
+    def __repr__(self):
+        return f"HardwareAccelerator({self.name}, encoder={self.encoder}, priority={self.priority})"
+
+
+# Hardware accelerator definitions with priority (lower = better)
+HW_ACCELERATORS = [
+    # macOS VideoToolbox (best on macOS)
+    HardwareAccelerator("VideoToolbox", "h264_videotoolbox", "h264", "videotoolbox", priority=1),
+    # NVIDIA NVENC (best on systems with NVIDIA GPUs)
+    HardwareAccelerator("NVENC", "h264_nvenc", "h264_cuvid", "cuda", priority=2),
+    # Intel Quick Sync Video (good on Intel systems)
+    HardwareAccelerator("QSV", "h264_qsv", "h264_qsv", "qsv", priority=3),
+    # AMD AMF (good on AMD systems)
+    HardwareAccelerator("AMF", "h264_amf", None, None, priority=4),
+    # VAAPI (Linux general purpose, works with Intel/AMD/NVIDIA)
+    HardwareAccelerator("VAAPI", "h264_vaapi", "h264", "vaapi", priority=5),
+    # V4L2 M2M (Raspberry Pi and other ARM devices)
+    HardwareAccelerator("V4L2", "h264_v4l2m2m", None, None, priority=6),
+]
+
+# Global cache for detected accelerator
+_detected_accelerator: Optional[HardwareAccelerator] = None
+_accelerator_detection_done = False
+
+
+def _check_encoder_available(encoder_name: str) -> bool:
+    """Check if a specific encoder is available in FFmpeg.
     
+    Args:
+        encoder_name: Name of the encoder to check
+        
     Returns:
-        True if h264_videotoolbox is available, False otherwise
+        True if encoder is available, False otherwise
     """
     try:
         import subprocess
@@ -560,9 +598,55 @@ def _check_videotoolbox_available() -> bool:
             text=True,
             timeout=5
         )
-        return 'h264_videotoolbox' in result.stdout
+        return encoder_name in result.stdout
     except Exception:
         return False
+
+
+def _detect_hardware_accelerator() -> Optional[HardwareAccelerator]:
+    """Detect the best available hardware accelerator.
+    
+    Returns:
+        HardwareAccelerator object for the best available accelerator, or None for software fallback
+    """
+    global _detected_accelerator, _accelerator_detection_done
+    
+    if _accelerator_detection_done:
+        return _detected_accelerator
+    
+    _accelerator_detection_done = True
+    
+    # Sort by priority (lower number = higher priority)
+    sorted_accelerators = sorted(HW_ACCELERATORS, key=lambda x: x.priority)
+    
+    for accel in sorted_accelerators:
+        if _check_encoder_available(accel.encoder):
+            _detected_accelerator = accel
+            return accel
+    
+    return None
+
+
+def _get_hardware_accelerator() -> Optional[HardwareAccelerator]:
+    """Get the detected hardware accelerator (cached).
+    
+    Returns:
+        HardwareAccelerator object or None for software encoding
+    """
+    return _detect_hardware_accelerator()
+
+
+def _check_videotoolbox_available() -> bool:
+    """Check if h264_videotoolbox encoder is available.
+    
+    DEPRECATED: Use _get_hardware_accelerator() instead.
+    Kept for backwards compatibility.
+    
+    Returns:
+        True if h264_videotoolbox is available, False otherwise
+    """
+    accel = _get_hardware_accelerator()
+    return accel is not None and accel.name == "VideoToolbox"
 
 
 def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
@@ -577,14 +661,21 @@ def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
     """
     log = get_logger()
     try:
-        # Check if hardware encoder is available
-        use_videotoolbox = _check_videotoolbox_available()
-        encoder = 'h264_videotoolbox' if use_videotoolbox else 'libx264'
+        # Detect best hardware accelerator
+        hw_accel = _get_hardware_accelerator()
+        encoder = hw_accel.encoder if hw_accel else 'libx264'
+        accel_info = f" using {hw_accel.name}" if hw_accel else " (software)"
         
-        log.info(f"Transcoding start: {input_path} -> {output_path} (encoder: {encoder})")
+        log.info(f"Transcoding start: {input_path} -> {output_path} (encoder: {encoder}{accel_info})")
+        
+        # Build input parameters with hardware acceleration if available
+        input_params = {}
+        if hw_accel and hw_accel.hwaccel:
+            input_params['hwaccel'] = hw_accel.hwaccel
+        
+        stream = ffmpeg.input(str(input_path), **input_params)
+        
         # Web-optimized settings: low resolution, low bitrate, fast encoding
-        stream = ffmpeg.input(str(input_path))
-        
         output_params = {
             'vcodec': encoder,
             'acodec': 'aac',
@@ -596,10 +687,18 @@ def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
         }
         
         # Add encoder-specific settings
-        if use_videotoolbox:
-            output_params['b:v'] = '2M'  # Target video bitrate for videotoolbox
+        if hw_accel:
+            if hw_accel.name in ['VideoToolbox', 'NVENC', 'QSV', 'AMF']:
+                output_params['b:v'] = '2M'  # Target video bitrate for hardware encoders
+            elif hw_accel.name == 'VAAPI':
+                # VAAPI specific settings
+                output_params['b:v'] = '2M'
+                output_params['vf'] = 'format=nv12,hwupload,scale_vaapi=w=-2:h=720'
+            else:
+                output_params['b:v'] = '2M'
         else:
-            output_params['preset'] = 'fast'  # Fast encoding preset for libx264
+            # Software encoding (libx264)
+            output_params['preset'] = 'fast'
             output_params['crf'] = 28  # Higher CRF = lower quality, smaller file
         
         stream = ffmpeg.output(stream, str(output_path), **output_params)
@@ -612,6 +711,27 @@ def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
         return ok
     except Exception as e:
         log.error(f"Transcoding error for {input_path}: {e}")
+        # Try fallback to software encoding if hardware fails
+        if hw_accel:
+            log.warning(f"Hardware encoding failed, retrying with software encoding")
+            try:
+                stream = ffmpeg.input(str(input_path))
+                output_params = {
+                    'vcodec': 'libx264',
+                    'acodec': 'aac',
+                    'vf': 'scale=-2:720',
+                    'maxrate': '2M',
+                    'bufsize': '4M',
+                    'audio_bitrate': '128k',
+                    'movflags': 'faststart',
+                    'preset': 'fast',
+                    'crf': 28
+                }
+                stream = ffmpeg.output(stream, str(output_path), **output_params)
+                ffmpeg.run(stream, overwrite_output=True, quiet=True)
+                return output_path.exists()
+            except Exception as e2:
+                log.error(f"Software encoding fallback also failed: {e2}")
         return False
 
 
@@ -1339,15 +1459,26 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
                 segment_path = Path(temp_dir) / f"segment_{i:02d}.mp4"
 
                 # Extract segment with ffmpeg
-                use_videotoolbox = _check_videotoolbox_available()
-                encoder = 'h264_videotoolbox' if use_videotoolbox else 'libx264'
+                hw_accel = _get_hardware_accelerator()
+                encoder = hw_accel.encoder if hw_accel else 'libx264'
                 
-                stream = ffmpeg.input(str(video_path), ss=timestamp, t=segment_duration)
+                # Build input parameters
+                input_params = {'ss': timestamp, 't': segment_duration}
+                if hw_accel and hw_accel.hwaccel:
+                    input_params['hwaccel'] = hw_accel.hwaccel
+                
+                stream = ffmpeg.input(str(video_path), **input_params)
+                
+                # Build output parameters
+                if hw_accel and hw_accel.name == 'VAAPI':
+                    vf = f'format=nv12,hwupload,scale_vaapi=w={size[0]}:h={size[1]}'
+                else:
+                    vf = f'scale={size[0]}:{size[1]}:force_original_aspect_ratio=decrease,pad={size[0]}:{size[1]}:(ow-iw)/2:(oh-ih)/2'
                 
                 output_params = {
                     'vcodec': encoder,
                     'acodec': 'aac',
-                    'vf': f'scale={size[0]}:{size[1]}:force_original_aspect_ratio=decrease,pad={size[0]}:{size[1]}:(ow-iw)/2:(oh-ih)/2',
+                    'vf': vf,
                     'r': fps,
                     'audio_bitrate': '64k',
                     'maxrate': '500k',
@@ -1355,7 +1486,7 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
                     'movflags': 'faststart'
                 }
                 
-                if use_videotoolbox:
+                if hw_accel:
                     output_params['b:v'] = '500k'
                 else:
                     output_params['preset'] = 'ultrafast'
@@ -1375,8 +1506,8 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
                     f.write(f"file '{segment}'\n")
 
             # Concatenate all segments into final motion thumbnail
-            use_videotoolbox = _check_videotoolbox_available()
-            encoder = 'h264_videotoolbox' if use_videotoolbox else 'libx264'
+            hw_accel = _get_hardware_accelerator()
+            encoder = hw_accel.encoder if hw_accel else 'libx264'
             
             stream = ffmpeg.input(str(concat_file), format='concat', safe=0)
             
@@ -1391,7 +1522,7 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
                 'pix_fmt': 'yuv420p'
             }
             
-            if use_videotoolbox:
+            if hw_accel:
                 output_params['b:v'] = '800k'
             else:
                 output_params['preset'] = 'fast'
