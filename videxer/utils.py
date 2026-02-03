@@ -1129,26 +1129,30 @@ def _find_existing_thumbnails(media_file: Path, root: Path) -> List[Path]:
                 thumbnails.append(match)
     
     # Remove duplicates and sort by preference
-    # Prefer files with resolution indicators (e.g., thumb_500x.jpg)
+    # Prefer files with highest resolution (e.g., thumb_1920x1080.jpg > thumb_500x.jpg)
     unique_thumbnails = list(dict.fromkeys(thumbnails))
     
     def thumbnail_sort_key(thumb_path: Path) -> tuple:
-        """Sort thumbnails by quality indicators."""
+        """Sort thumbnails by quality indicators.
+        
+        Returns tuple: (resolution_pixels, is_media_specific)
+        Higher values = better quality/more relevant thumbnail
+        """
         name = thumb_path.stem.lower()
         
         # Extract resolution if present (e.g., thumb_500x, thumb_1920x1080)
         import re
         resolution_match = re.search(r'(\d+)x(\d*)', name)
+        resolution_pixels = 0
         if resolution_match:
             width = int(resolution_match.group(1))
             height = int(resolution_match.group(2)) if resolution_match.group(2) else width
-            return (1, width * height)  # Higher resolution = better
+            resolution_pixels = width * height
         
-        # Prefer specific names over generic ones
-        if media_stem in name:
-            return (0, 1000)  # Media-specific thumbnails
+        # Secondary preference: media-specific thumbnails over generic ones
+        is_media_specific = 1 if media_stem in name else 0
         
-        return (0, 0)  # Generic thumbnails
+        return (resolution_pixels, is_media_specific)
     
     unique_thumbnails.sort(key=thumbnail_sort_key, reverse=True)
     
