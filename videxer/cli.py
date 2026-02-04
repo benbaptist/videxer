@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Optional
 import click
+from importlib.metadata import version
 
 from .indexer import write_index_files
 from .utils import ensure_dir, detect_media_structure, MediaStructure, load_config, save_config, merge_config_with_args, setup_logging, get_logger, _get_hardware_accelerator
@@ -18,6 +19,7 @@ def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
 
 @click.command()
 @click.argument("input_dir", type=click.Path(file_okay=False, dir_okay=True, path_type=Path), default=Path("."))
+@click.option("-v", "--version", "show_version", is_flag=True, help="Show version and exit")
 @click.option("--output-dir", type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
               help="Output directory for index files (defaults to input directory)")
 @click.option("--html-path", type=click.Path(dir_okay=False, path_type=Path),
@@ -33,13 +35,17 @@ def resolve_output_dir(output_dir: Optional[str], input_dir: Path) -> Path:
 @click.option("--log-level", type=click.Choice(["CRITICAL","ERROR","WARNING","INFO","DEBUG"], case_sensitive=False), default="INFO",
               help="Log level for console output; file always logs at DEBUG")
 @click.pass_context
-def cli(ctx, input_dir: Path, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool, generate_transcodes: bool, log_level: str):
+def cli(ctx, input_dir: Path, show_version: bool, output_dir: Optional[Path], html_path: Optional[Path], json_path: Optional[Path], generate_thumbnails: bool, generate_motion_thumbnails: bool, generate_transcodes: bool, log_level: str):
     """Generate a static index.html and index.json for the given media directory.
 
     Scans the input directory for media files (videos, audio, images) and creates
     a browsable HTML interface. Supports both generic media libraries and
     Vimeo download directories (backwards compatible).
     """
+    if show_version:
+        click.echo(f"videxer {version('videxer')}")
+        ctx.exit()
+    
     input_dir = Path(input_dir).resolve()
 
     if not input_dir.exists() or not input_dir.is_dir():
