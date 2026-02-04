@@ -627,6 +627,22 @@ def _detect_hardware_accelerator() -> Optional[HardwareAccelerator]:
     return None
 
 
+def _get_all_available_accelerators() -> List[HardwareAccelerator]:
+    """Get all available hardware accelerators sorted by priority.
+    
+    Returns:
+        List of HardwareAccelerator objects sorted by priority
+    """
+    available = []
+    sorted_accelerators = sorted(HW_ACCELERATORS, key=lambda x: x.priority)
+    
+    for accel in sorted_accelerators:
+        if _check_encoder_available(accel.encoder):
+            available.append(accel)
+    
+    return available
+
+
 def _get_hardware_accelerator() -> Optional[HardwareAccelerator]:
     """Get the detected hardware accelerator (cached).
     
@@ -649,8 +665,61 @@ def _check_videotoolbox_available() -> bool:
     return accel is not None and accel.name == "VideoToolbox"
 
 
+def _transcode_with_encoder(input_path: Path, output_path: Path, hw_accel: Optional[HardwareAccelerator]) -> bool:
+    """Attempt to transcode a video with a specific encoder.
+    
+    Args:
+        input_path: Path to the input video file
+        output_path: Path where the transcoded file should be saved
+        hw_accel: Hardware accelerator to use, or None for software encoding
+        
+    Returns:
+        True if transcoding was successful, False otherwise
+    """
+    encoder = hw_accel.encoder if hw_accel else 'libx264'
+    
+    # Build input parameters with hardware acceleration if available
+    input_params = {}
+    if hw_accel and hw_accel.hwaccel:
+        input_params['hwaccel'] = hw_accel.hwaccel
+    
+    stream = ffmpeg.input(str(input_path), **input_params)
+    
+    # Web-optimized settings: low resolution, low bitrate, fast encoding
+    output_params = {
+        'vcodec': encoder,
+        'acodec': 'aac',
+        'vf': 'scale=-2:720',  # Scale to 720p height, maintain aspect ratio
+        'maxrate': '2M',       # Maximum bitrate 2Mbps
+        'bufsize': '4M',       # Buffer size
+        'audio_bitrate': '128k',  # Low audio bitrate
+        'movflags': 'faststart'   # Enable fast start for web playback
+    }
+    
+    # Add encoder-specific settings
+    if hw_accel:
+        if hw_accel.name in ['VideoToolbox', 'NVENC', 'QSV', 'AMF']:
+            output_params['b:v'] = '2M'  # Target video bitrate for hardware encoders
+        elif hw_accel.name == 'VAAPI':
+            # VAAPI specific settings
+            output_params['b:v'] = '2M'
+            output_params['vf'] = 'format=nv12,hwupload,scale_vaapi=w=-2:h=720'
+        else:
+            output_params['b:v'] = '2M'
+    else:
+        # Software encoding (libx264)
+        output_params['preset'] = 'fast'
+        output_params['crf'] = 28  # Higher CRF = lower quality, smaller file
+    
+    stream = ffmpeg.output(stream, str(output_path), **output_params)
+    ffmpeg.run(stream, overwrite_output=True, quiet=True)
+    return output_path.exists()
+
+
 def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
     """Generate a web-optimized transcoded version of a video file.
+    
+    Tries all available hardware encoders in priority order before falling back to software encoding.
 
     Args:
         input_path: Path to the input video file
@@ -660,78 +729,41 @@ def generate_video_transcode(input_path: Path, output_path: Path) -> bool:
         True if transcoding was successful, False otherwise
     """
     log = get_logger()
-    try:
-        # Detect best hardware accelerator
-        hw_accel = _get_hardware_accelerator()
-        encoder = hw_accel.encoder if hw_accel else 'libx264'
-        accel_info = f" using {hw_accel.name}" if hw_accel else " (software)"
+    
+    # Get all available hardware accelerators
+    available_accelerators = _get_all_available_accelerators()
+    
+    # Try each hardware accelerator in priority order
+    for hw_accel in available_accelerators:
+        encoder = hw_accel.encoder
+        log.info(f"Transcoding attempt: {input_path} -> {output_path} (encoder: {encoder} using {hw_accel.name})")
         
-        log.info(f"Transcoding start: {input_path} -> {output_path} (encoder: {encoder}{accel_info})")
-        
-        # Build input parameters with hardware acceleration if available
-        input_params = {}
-        if hw_accel and hw_accel.hwaccel:
-            input_params['hwaccel'] = hw_accel.hwaccel
-        
-        stream = ffmpeg.input(str(input_path), **input_params)
-        
-        # Web-optimized settings: low resolution, low bitrate, fast encoding
-        output_params = {
-            'vcodec': encoder,
-            'acodec': 'aac',
-            'vf': 'scale=-2:720',  # Scale to 720p height, maintain aspect ratio
-            'maxrate': '2M',       # Maximum bitrate 2Mbps
-            'bufsize': '4M',       # Buffer size
-            'audio_bitrate': '128k',  # Low audio bitrate
-            'movflags': 'faststart'   # Enable fast start for web playback
-        }
-        
-        # Add encoder-specific settings
-        if hw_accel:
-            if hw_accel.name in ['VideoToolbox', 'NVENC', 'QSV', 'AMF']:
-                output_params['b:v'] = '2M'  # Target video bitrate for hardware encoders
-            elif hw_accel.name == 'VAAPI':
-                # VAAPI specific settings
-                output_params['b:v'] = '2M'
-                output_params['vf'] = 'format=nv12,hwupload,scale_vaapi=w=-2:h=720'
+        try:
+            if _transcode_with_encoder(input_path, output_path, hw_accel):
+                log.info(f"Transcoding success with {hw_accel.name}: {output_path}")
+                return True
             else:
-                output_params['b:v'] = '2M'
+                log.warning(f"Transcoding with {hw_accel.name} failed to produce file, trying next encoder")
+        except Exception as e:
+            log.warning(f"Transcoding error with {hw_accel.name}: {e}, trying next encoder")
+            # Clean up partial file if it exists
+            if output_path.exists():
+                try:
+                    output_path.unlink()
+                except Exception:
+                    pass
+    
+    # Final fallback to software encoding
+    log.warning(f"All hardware encoders failed, falling back to software encoding")
+    try:
+        if _transcode_with_encoder(input_path, output_path, None):
+            log.info(f"Transcoding success with software encoding: {output_path}")
+            return True
         else:
-            # Software encoding (libx264)
-            output_params['preset'] = 'fast'
-            output_params['crf'] = 28  # Higher CRF = lower quality, smaller file
-        
-        stream = ffmpeg.output(stream, str(output_path), **output_params)
-        ffmpeg.run(stream, overwrite_output=True, quiet=True)
-        ok = output_path.exists()
-        if ok:
-            log.info(f"Transcoding success: {output_path}")
-        else:
-            log.error(f"Transcoding failed to produce file: {output_path}")
-        return ok
+            log.error(f"Software encoding failed to produce file: {output_path}")
+            return False
     except Exception as e:
-        log.error(f"Transcoding error for {input_path}: {e}")
-        # Try fallback to software encoding if hardware fails
-        if hw_accel:
-            log.warning(f"Hardware encoding failed, retrying with software encoding")
-            try:
-                stream = ffmpeg.input(str(input_path))
-                output_params = {
-                    'vcodec': 'libx264',
-                    'acodec': 'aac',
-                    'vf': 'scale=-2:720',
-                    'maxrate': '2M',
-                    'bufsize': '4M',
-                    'audio_bitrate': '128k',
-                    'movflags': 'faststart',
-                    'preset': 'fast',
-                    'crf': 28
-                }
-                stream = ffmpeg.output(stream, str(output_path), **output_params)
-                ffmpeg.run(stream, overwrite_output=True, quiet=True)
-                return output_path.exists()
-            except Exception as e2:
-                log.error(f"Software encoding fallback also failed: {e2}")
+        log.error(f"Software encoding failed: {e}")
         return False
 
 
