@@ -712,7 +712,12 @@ def _transcode_with_encoder(input_path: Path, output_path: Path, hw_accel: Optio
         output_params['crf'] = 28  # Higher CRF = lower quality, smaller file
     
     stream = ffmpeg.output(stream, str(output_path), **output_params)
-    ffmpeg.run(stream, overwrite_output=True, quiet=True)
+    try:
+        ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+    except ffmpeg.Error as e:
+        log = get_logger()
+        log.error(f"FFmpeg encoding failed with {encoder}: {e.stderr.decode() if e.stderr else 'No error output'}")
+        raise
     return output_path.exists()
 
 
@@ -1529,7 +1534,12 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
                     output_params['crf'] = 32
                 
                 stream = ffmpeg.output(stream, str(segment_path), **output_params)
-                ffmpeg.run(stream, overwrite_output=True, quiet=True)
+                try:
+                    ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+                except ffmpeg.Error as e:
+                    log = get_logger()
+                    log.error(f"FFmpeg segment extraction failed: {e.stderr.decode() if e.stderr else 'No error output'}")
+                    raise
                 segment_files.append(segment_path)
 
             if len(segment_files) < 2:
@@ -1565,7 +1575,12 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
                 output_params['crf'] = 28
             
             stream = ffmpeg.output(stream, str(output_path), **output_params)
-            ffmpeg.run(stream, overwrite_output=True, quiet=True)
+            try:
+                ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            except ffmpeg.Error as e:
+                log = get_logger()
+                log.error(f"FFmpeg concatenation failed: {e.stderr.decode() if e.stderr else 'No error output'}")
+                raise
 
         return output_path.exists()
 
