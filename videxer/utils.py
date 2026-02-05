@@ -386,31 +386,36 @@ def _create_media_item(media_file: Path, root: Path, subtitle_files: List[Path],
             if motion_thumb_path.exists():
                 item['motion_thumb'] = str(motion_thumb_path.relative_to(root))
         
-        # Generate transcode
-        if generate_transcodes and media_file.suffix.lower() in VIDEO_EXTS:
+        # Handle transcoded versions for video files
+        if media_file.suffix.lower() in VIDEO_EXTS:
             transcode_filename = f"{media_file.stem}_web.mp4"
             assets_dir = root / INDEXER_ASSETS_DIR / "transcodes"
-            ensure_dir(assets_dir)
             transcode_path = assets_dir / transcode_filename
             log = get_logger()
             
+            # Check for existing transcode
             if transcode_path.exists():
                 if not validate_transcode_file(transcode_path):
-                    log.warning(f"Invalid transcode detected, will regenerate: {transcode_path}")
-                    try:
-                        transcode_path.unlink()
-                    except Exception:
-                        log.error(f"Failed to delete invalid transcode: {transcode_path}")
+                    log.warning(f"Invalid transcode detected: {transcode_path}")
+                    if generate_transcodes:
+                        log.info(f"Will regenerate invalid transcode: {transcode_path}")
+                        try:
+                            transcode_path.unlink()
+                        except Exception:
+                            log.error(f"Failed to delete invalid transcode: {transcode_path}")
                 else:
+                    # Valid existing transcode - use it
                     log.debug(f"Using existing valid transcode: {transcode_path}")
-                    
-            if not transcode_path.exists():
+                    item['transcoded'] = str(transcode_path.relative_to(root))
+            
+            # Generate new transcode if requested and doesn't exist
+            if generate_transcodes and not transcode_path.exists():
+                ensure_dir(assets_dir)
                 ok = generate_video_transcode(media_file, transcode_path)
                 if not ok:
                     log.error(f"Transcoding failed for: {media_file}")
-                    
-            if transcode_path.exists():
-                item['transcoded'] = str(transcode_path.relative_to(root))
+                elif transcode_path.exists():
+                    item['transcoded'] = str(transcode_path.relative_to(root))
         
         # Process subtitles
         if subtitle_files:
