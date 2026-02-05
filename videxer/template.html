@@ -411,35 +411,6 @@
   .immersive .meta { margin-top: 8px; }
   .immersive .row { margin-top: 8px; }
   
-  /* Mobile landscape: fullscreen video */
-  @media (max-width: 1023px) and (orientation: landscape) {
-    .immersive-header { 
-      position: absolute; 
-      top: 0; 
-      left: 0; 
-      right: 0; 
-      z-index: 61; 
-      background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent);
-      height: auto;
-      padding: 14px 18px;
-    }
-    .immersive-close { 
-      color: #fff; 
-      background: rgba(0, 0, 0, 0.6);
-    }
-    .immersive-close:hover { background: rgba(0, 0, 0, 0.8); }
-    .immersive-content { 
-      position: absolute; 
-      inset: 0; 
-    }
-    .immersive-media { 
-      height: 100%; 
-      max-height: none;
-      aspect-ratio: unset;
-    }
-    .immersive-info { display: none; }
-  }
-  
   /* Desktop: player alongside sidebar */
   @media (min-width: 1024px) {
     .immersive { 
@@ -1112,13 +1083,6 @@
         return window.matchMedia('(min-width: 1024px)').matches && window.matchMedia('(pointer: fine)').matches;
       }
 
-      function updateImmersiveOrientation() {
-        if (!immersive.classList.contains('open')) return;
-        const isLand = window.matchMedia('(orientation: landscape)').matches;
-        immersive.classList.toggle('landscape', isLand);
-      }
-      window.addEventListener('resize', updateImmersiveOrientation);
-
       function openImmersive(item, title, type) {
         document.body.classList.add('immersive-open');
         immTitle.textContent = title || 'Media';
@@ -1254,7 +1218,6 @@
         }
 
         immersive.classList.add('open');
-        updateImmersiveOrientation();
       }
 
       async function loadTranscript(item, container, mediaType) {
