@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Media Library Index</title>
   <style>
+  /* ========================================
+     CSS Variables & Reset
+     ======================================== */
   :root { 
     color-scheme: dark;
     --bg: #0a0a0a;
@@ -18,80 +21,83 @@
     --accent: #60a5fa;
     --shadow: rgba(0, 0, 0, 0.5);
     --glass-blur: blur(20px);
+    --sidebar-width: 320px;
+    --spacing: 20px;
   }
 
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { height: 100%; }
   body { 
     font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; 
-    margin: 0; 
+    min-height: 100%;
     background: var(--bg);
     background-image: var(--bg-gradient);
     background-attachment: fixed;
-    color: var(--text); 
+    color: var(--text);
+    overflow-x: hidden;
   }
 
-  .app { min-height: 100vh; display: grid; }
-  /* Landscape: left sidebar */
-  @media (orientation: landscape) {
-    .app { grid-template-columns: 320px 1fr; }
-    nav.nav { 
-      position: sticky; 
-      top: 0; 
-      height: 100vh; 
-      border-right: none;
-      margin: 20px 0 20px 20px;
-      border-radius: 24px;
-    }
-  }
-  /* Portrait: top bar */
-  @media (orientation: portrait) {
-    .app { grid-template-rows: auto 1fr; }
-    nav.nav { 
-      position: sticky; 
-      top: 0; 
-      width: 100%; 
-      border-bottom: none;
-      margin: 20px 20px 0 20px;
-      border-radius: 24px;
-      overflow: hidden;
-    }
+  /* ========================================
+     App Layout - Mobile First
+     ======================================== */
+  .app { 
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
   }
 
+  /* Mobile: nav at top */
   nav.nav { 
+    flex-shrink: 0;
     background: var(--nav); 
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
-    padding: 20px; 
+    padding: var(--spacing);
     z-index: 10;
     box-shadow: 0 8px 32px var(--shadow);
+    margin: var(--spacing) var(--spacing) 0;
+    border-radius: 24px;
   }
-  .brand { display:flex; align-items:center; gap:10px; margin-bottom: 12px; }
+
+  .main { 
+    flex: 1;
+    min-width: 0;
+    padding: var(--spacing);
+  }
+
+  /* Desktop: sidebar layout */
+  @media (min-width: 1024px) {
+    .app { 
+      flex-direction: row;
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    nav.nav { 
+      width: var(--sidebar-width);
+      flex-shrink: 0;
+      height: calc(100vh - var(--spacing) * 2);
+      margin: var(--spacing) 0 var(--spacing) var(--spacing);
+      overflow-y: auto;
+    }
+    
+    .main {
+      flex: 1;
+      overflow-y: auto;
+    }
+  }
+
+  /* ========================================
+     Navigation Components
+     ======================================== */
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
   .brand-title { font-weight: 800; letter-spacing: .3px; font-size: 20px; }
   .controls { display: grid; gap: 10px; }
-  .controls .row { display:flex; gap:8px; flex-wrap: wrap; }
+  .controls .row { display: flex; gap: 8px; flex-wrap: wrap; }
 
-  /* In portrait, align brand/controls horizontally when there's space */
-  @media (orientation: portrait) {
-    nav.nav { display: grid; grid-template-columns: 1fr; grid-auto-rows: min-content; gap: 8px; }
-    .brand { margin: 0; }
-  }
-
-  .main { min-width: 0; padding: 20px; }
-  .container { 
-    padding: 0; 
-    display: grid; 
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
-    gap: 20px; 
-    max-width: 1800px; 
-    margin: 0 auto; 
-  }
-  .container.list { 
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
-
+  /* ========================================
+     Form Elements
+     ======================================== */
   .input, .select, .btn { 
     padding: 12px 16px; 
     font-size: 14px; 
@@ -103,7 +109,6 @@
     color: var(--text);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
-  .select { background: var(--panel); }
   .btn { 
     cursor: pointer; 
     user-select: none; 
@@ -116,14 +121,36 @@
     transform: translateY(-1px);
   }
   .hint { font-size: 12px; color: var(--muted); margin-left: 2px; }
+  .input:focus, .select:focus, .btn:focus { 
+    outline: 2px solid rgba(96, 165, 250, 0.5); 
+    outline-offset: 2px; 
+  }
 
-  /* Breadcrumb navigation */
+  /* ========================================
+     Content Grid
+     ======================================== */
+  .container { 
+    display: grid; 
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
+    gap: var(--spacing); 
+    max-width: 1800px; 
+    margin: 0 auto; 
+  }
+  .container.list { 
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing);
+  }
+
+  /* ========================================
+     Breadcrumb
+     ======================================== */
   .breadcrumb { 
     display: flex; 
     align-items: center; 
     flex-wrap: wrap; 
     gap: 8px; 
-    padding: 0 0 16px 0; 
+    padding-bottom: 16px; 
     margin-bottom: 16px; 
   }
   .breadcrumb-item { 
@@ -133,7 +160,24 @@
   }
   .breadcrumb-sep { color: var(--muted); font-size: 12px; }
 
-  /* Directory cards */
+  /* ========================================
+     Cards
+     ======================================== */
+  .card { 
+    background: var(--card);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border-radius: 20px; 
+    overflow: hidden; 
+    display: flex; 
+    flex-direction: column; 
+    transition: box-shadow 0.3s ease;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  .card:hover { 
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+
   .directory-media { 
     display: flex; 
     align-items: center; 
@@ -146,26 +190,39 @@
   .directory-icon { color: var(--accent); opacity: 0.6; transition: opacity 0.3s ease; }
   .directory-media:hover .directory-icon { opacity: 1; }
 
-  .card { 
-    background: var(--card);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: none;
-    border-radius: 20px; 
+  .media { 
+    position: relative; 
+    display: block; 
+    padding: 0; 
+    border: 0; 
+    background: transparent; 
+    cursor: pointer; 
     overflow: hidden; 
+    border-radius: 20px 20px 0 0; 
+  }
+  .thumb { width: 100%; aspect-ratio: 16/9; object-fit: contain; background: #0a0a0a; display: block; }
+  .motion-thumb { 
+    width: 100%; 
+    height: 100%; 
+    object-fit: contain; 
+    background: #0a0a0a; 
+    position: absolute; 
+    top: 0; 
+    left: 0; 
+    opacity: 0; 
+    pointer-events: none; 
+    transition: opacity .2s ease; 
+  }
+  .play { 
+    position: absolute; 
+    inset: 0; 
     display: flex; 
-    flex-direction: column; 
-    transition: box-shadow 0.3s ease;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    align-items: center; 
+    justify-content: center; 
+    background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.5) 100%); 
+    opacity: 0; 
+    transition: opacity .3s; 
   }
-  .card:hover { 
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-  }
-
-  .media { position: relative; display:block; padding:0; border:0; background:transparent; cursor:pointer; overflow: hidden; border-radius: 20px 20px 0 0; }
-  .thumb { width: 100%; aspect-ratio: 16/9; object-fit: contain; background: #0a0a0a; display:block; }
-  .motion-thumb { width: 100%; height: 100%; object-fit: contain; background: #0a0a0a; position: absolute; top: 0; left: 0; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
-  .play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.5) 100%); opacity: 0; transition: opacity .3s; }
   .media:hover .play { opacity: 1; }
   .play-icon { 
     width: 64px; 
@@ -183,14 +240,14 @@
     transform: scale(1.1);
     background: rgba(0, 0, 0, 0.7);
   }
-  .play-icon svg { width:24px; height:24px; fill: #fff; transform: translateX(2px); }
-  .content { padding: 16px; display:flex; flex-direction: column; gap: 10px; }
-  .title { font-size: 14px; font-weight: 600; margin: 0; }
+  .play-icon svg { width: 24px; height: 24px; fill: #fff; transform: translateX(2px); }
+  
+  .content { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .title { font-size: 14px; font-weight: 600; }
   .title button { background: none; border: 0; color: var(--text); font: inherit; cursor: pointer; padding: 0; }
   .title button:hover { text-decoration: underline; }
-  .meta { font-size: 12px; color: var(--muted); display:flex; gap:8px; flex-wrap: wrap; }
+  .meta { font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
   .badge { 
-    border: none;
     background: rgba(40, 40, 40, 0.6);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -198,25 +255,49 @@
     padding: 4px 10px;
   }
   .row .btn { background: transparent; }
-  .container.list .card { display:flex; flex-direction: row; align-items: stretch; }
-  .container.list .media { width: 260px; min-width:260px; border-radius: 20px 0 0 20px; }
+
+  /* List view overrides */
+  .container.list .card { flex-direction: row; align-items: stretch; }
+  .container.list .media { width: 260px; min-width: 260px; border-radius: 20px 0 0 20px; }
   .container.list .directory-media { aspect-ratio: 16/9; }
   .container.list .thumb { width: 100%; height: 100%; aspect-ratio: unset; object-fit: contain; }
   .container.list .content { flex: 1; }
 
-  /* Accessibility helpers */
-  .visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-  .input:focus, .select:focus, .btn:focus { outline: 2px solid rgba(96, 165, 250, 0.5); outline-offset: 2px; }
+  /* ========================================
+     Accessibility
+     ======================================== */
+  .visually-hidden { 
+    position: absolute !important; 
+    width: 1px; 
+    height: 1px; 
+    padding: 0; 
+    margin: -1px; 
+    overflow: hidden; 
+    clip: rect(0, 0, 0, 0); 
+    white-space: nowrap; 
+    border: 0; 
+  }
 
-  /* Modal media player */
-  .modal { position: fixed; inset: 0; display:none; align-items:center; justify-content:center; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 50; }
-  .modal.open { display:flex; }
+  /* ========================================
+     Modal Player (fallback for unsupported)
+     ======================================== */
+  .modal { 
+    position: fixed; 
+    inset: 0; 
+    display: none; 
+    align-items: center; 
+    justify-content: center; 
+    background: rgba(0, 0, 0, 0.85); 
+    backdrop-filter: blur(10px); 
+    -webkit-backdrop-filter: blur(10px); 
+    z-index: 50; 
+  }
+  .modal.open { display: flex; }
   .modal-dialog { 
     width: min(90vw, 1200px); 
     background: var(--card);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
-    border: none;
     border-radius: 24px; 
     overflow: hidden; 
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
@@ -226,7 +307,6 @@
     justify-content: space-between; 
     align-items: center; 
     padding: 16px 20px; 
-    border-bottom: none;
     background: rgba(20, 20, 20, 0.6);
   }
   .modal-title { font-size: 15px; font-weight: 600; }
@@ -241,42 +321,36 @@
     line-height: 1;
     transition: all 0.3s ease;
   }
-  .modal-close:hover {
-    background: rgba(60, 60, 60, 0.8);
-  }
+  .modal-close:hover { background: rgba(60, 60, 60, 0.8); }
   .modal-body { background: #000; }
-  video, audio { display:block; width:100%; height:auto; background:#000; }
-  img.modal-image { display:block; max-width:100%; max-height:80vh; margin:0 auto; }
+  video, audio { display: block; width: 100%; height: auto; background: #000; }
+  img.modal-image { display: block; max-width: 100%; max-height: 80vh; margin: 0 auto; }
 
-  /* Immersive mobile player */
-  :root { --immersive-header-h: 60px; }
+  /* ========================================
+     Immersive Player - Mobile First
+     ======================================== */
   body.immersive-open { overflow: hidden; }
-  
-  /* On desktop, allow body to scroll normally */
-  @media (min-width: 1024px) {
-    body.immersive-open { overflow: auto; }
-  }
   
   .immersive { 
     position: fixed; 
     inset: 0; 
     z-index: 60; 
     display: none; 
+    flex-direction: column;
     background: var(--bg); 
-    color: var(--text); 
+    color: var(--text);
+    overflow: hidden;
   }
-  .immersive.open { display: flex; flex-direction: column; }
+  .immersive.open { display: flex; }
+  
   .immersive-header { 
-    position: relative; 
-    height: var(--immersive-header-h); 
+    flex-shrink: 0;
+    height: 60px;
     display: flex; 
     align-items: center; 
     gap: 12px; 
     padding: 14px 18px; 
     background: #000;
-    border-bottom: none;
-    flex-shrink: 0;
-    box-shadow: none;
   }
   .immersive-title { 
     font-size: 17px; 
@@ -296,119 +370,112 @@
     transition: all 0.3s ease;
     font-size: 15px;
   }
-  .immersive-close:hover {
-    background: rgba(60, 60, 60, 0.9);
-  }
-  .quality { display:flex; gap:8px; align-items:center; }
-  .quality .btn { 
-    padding: 10px 14px;
-    font-size: 14px;
-  }
+  .immersive-close:hover { background: rgba(60, 60, 60, 0.9); }
+  
+  .quality { display: flex; gap: 8px; align-items: center; }
+  .quality .btn { padding: 10px 14px; font-size: 14px; }
   .quality .btn.active { 
     background: rgba(96, 165, 250, 0.25);
     box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.5);
   }
-  .immersive-content { position: relative; flex: 1; overflow: hidden; }
-  .immersive-media { position: relative; width: 100%; background: #000; height: min(50vh, calc(100vw * 9 / 16)); }
-  .immersive-media > video, .immersive-media > img { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  
+  .immersive-content { 
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  
+  .immersive-media { 
+    flex-shrink: 0;
+    width: 100%; 
+    background: #000; 
+    aspect-ratio: 16/9;
+    max-height: 50vh;
+  }
+  .immersive-media > video, 
+  .immersive-media > img { 
+    width: 100%; 
+    height: 100%; 
+    object-fit: contain; 
+    display: block; 
+    background: #000; 
+  }
+  
   .immersive-info { 
-    position: absolute; 
-    top: min(50vh, calc(100vw * 9 / 16)); 
-    bottom: 0; 
-    left: 0; 
-    right: 0; 
-    overflow: auto; 
-    padding: 20px; 
+    flex: 1;
+    overflow-y: auto; 
+    padding: var(--spacing); 
     background: var(--bg);
   }
   .immersive .meta { margin-top: 8px; }
   .immersive .row { margin-top: 8px; }
   
-  /* Mobile landscape: fullscreen video without info panel */
+  /* Mobile landscape: fullscreen video */
   @media (max-width: 1023px) and (orientation: landscape) {
     .immersive-header { 
-      position: fixed; 
+      position: absolute; 
       top: 0; 
       left: 0; 
       right: 0; 
       z-index: 61; 
-      background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0));
-      color: #fff; 
+      background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent);
+      height: auto;
+      padding: 14px 18px;
     }
     .immersive-close { 
       color: #fff; 
       background: rgba(0, 0, 0, 0.6);
     }
-    .immersive-close:hover {
-      background: rgba(0, 0, 0, 0.8);
+    .immersive-close:hover { background: rgba(0, 0, 0, 0.8); }
+    .immersive-content { 
+      position: absolute; 
+      inset: 0; 
     }
-    .immersive-content { position: absolute; inset: 0; }
-    .immersive-media { height: 100%; }
+    .immersive-media { 
+      height: 100%; 
+      max-height: none;
+      aspect-ratio: unset;
+    }
     .immersive-info { display: none; }
   }
   
-  /* Desktop: player in main area with sidebar visible */
+  /* Desktop: player alongside sidebar */
   @media (min-width: 1024px) {
     .immersive { 
-      /* On desktop, position relative to the app grid, not full screen */
-      position: fixed;
-      left: 340px; /* Account for sidebar width + margins */
-      right: 0;
-      top: 0;
-      bottom: 0;
-      z-index: 5; /* Lower than nav but above main content */
-      overflow-y: auto;
+      left: calc(var(--sidebar-width) + var(--spacing));
+      z-index: 5;
     }
+    
     .immersive-header {
-      margin: 20px 20px 0 0;
+      margin: var(--spacing) var(--spacing) 0 0;
       border-radius: 24px 24px 0 0;
       background: var(--nav);
       backdrop-filter: var(--glass-blur);
       -webkit-backdrop-filter: var(--glass-blur);
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
     }
-    .immersive-close {
-      background: rgba(40, 40, 40, 0.6);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
-    .immersive-close:hover {
-      background: rgba(60, 60, 60, 0.8);
-    }
+    
     .immersive-content { 
-      display: flex;
-      flex-direction: column;
-      margin: 0 20px 20px 0;
+      margin: 0 var(--spacing) var(--spacing) 0;
       border-radius: 0 0 24px 24px;
-      overflow: hidden;
       background: var(--card);
       backdrop-filter: var(--glass-blur);
       -webkit-backdrop-filter: var(--glass-blur);
       box-shadow: 0 8px 32px var(--shadow);
     }
+    
     .immersive-media { 
-      width: 100%; 
-      height: auto;
-      max-height: 50vh;
-      aspect-ratio: 16/9;
-      border-radius: 0;
+      max-height: 55vh;
     }
+    
     .immersive-info { 
-      position: relative; 
-      top: 0; 
-      width: 100%; 
-      flex-shrink: 0; 
-      height: auto; 
-      max-height: 50vh;
-      padding: 0;
-      border-left: none;
-      background: transparent;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-      overflow: hidden;
       display: flex;
       flex-direction: row;
       gap: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
     }
     
     .immersive-info > div:first-child {
@@ -418,9 +485,11 @@
     }
   }
 
-  /* Transcript viewer styles - Mobile first */
+  /* ========================================
+     Transcript Panel
+     ======================================== */
   .transcript-panel {
-    margin-top: 20px;
+    margin-top: var(--spacing);
     background: var(--panel);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
@@ -467,9 +536,7 @@
     max-height: 300px;
   }
   
-  .transcript-segments {
-    padding: 4px;
-  }
+  .transcript-segments { padding: 4px; }
   
   .transcript-segment {
     display: flex;
@@ -482,72 +549,12 @@
     font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
   }
   
-  .transcript-segment:hover {
-    background: rgba(40, 40, 40, 0.6);
-  }
-  
+  .transcript-segment:hover { background: rgba(40, 40, 40, 0.6); }
   .transcript-segment.active {
     background: rgba(96, 165, 250, 0.15);
     border-left: 2px solid var(--accent);
   }
-  
-  .transcript-segment.hidden {
-    display: none;
-  }
-  
-  /* Desktop: transcript as right panel */
-  @media (min-width: 1024px) {
-    .transcript-panel {
-      margin-top: 0;
-      width: 35%;
-      max-width: 450px;
-      min-width: 300px;
-      background: rgba(15, 15, 15, 0.8);
-      border-radius: 0;
-      border-left: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-    
-    .transcript-header {
-      padding: 12px 14px;
-      flex-shrink: 0;
-    }
-    
-    .transcript-title {
-      font-size: 11px;
-    }
-    
-    .transcript-search {
-      padding: 8px 10px;
-      flex-shrink: 0;
-    }
-    
-    .transcript-search input {
-      padding: 5px 8px;
-      font-size: 12px;
-      border-radius: 6px;
-    }
-    
-    .transcript-body {
-      flex: 1;
-      overflow-y: auto;
-      max-height: none;
-    }
-    
-    .transcript-segments {
-      padding: 2px 2px 20px 2px;
-    }
-    
-    .transcript-segment {
-      padding: 5px 8px;
-      margin-bottom: 1px;
-      border-radius: 4px;
-      font-size: 12px;
-      line-height: 1.4;
-    }
-  }
+  .transcript-segment.hidden { display: none; }
   
   .transcript-timestamp {
     flex-shrink: 0;
@@ -565,18 +572,6 @@
     color: var(--text);
   }
   
-  @media (min-width: 1024px) {
-    .transcript-timestamp {
-      font-size: 11px;
-      min-width: 45px;
-    }
-    
-    .transcript-text {
-      font-size: 12px;
-      line-height: 1.4;
-    }
-  }
-  
   .transcript-text mark {
     background: rgba(255, 235, 59, 0.3);
     color: var(--text);
@@ -590,6 +585,33 @@
     color: var(--muted);
     font-size: 14px;
   }
+  
+  /* Desktop transcript: side panel */
+  @media (min-width: 1024px) {
+    .transcript-panel {
+      margin-top: 0;
+      width: 35%;
+      max-width: 450px;
+      min-width: 300px;
+      background: rgba(15, 15, 15, 0.8);
+      border-radius: 0;
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    
+    .transcript-header { padding: 12px 14px; flex-shrink: 0; }
+    .transcript-title { font-size: 11px; }
+    .transcript-search { padding: 8px 10px; flex-shrink: 0; }
+    .transcript-search input { padding: 5px 8px; font-size: 12px; border-radius: 6px; }
+    .transcript-body { flex: 1; overflow-y: auto; max-height: none; }
+    .transcript-segments { padding: 2px 2px 20px 2px; }
+    .transcript-segment { padding: 5px 8px; margin-bottom: 1px; border-radius: 4px; font-size: 12px; line-height: 1.4; }
+    .transcript-timestamp { font-size: 11px; min-width: 45px; }
+    .transcript-text { font-size: 12px; line-height: 1.4; }
+  }
+  </style>
   </style>
   <script>
     async function fetchJSON(path) {
