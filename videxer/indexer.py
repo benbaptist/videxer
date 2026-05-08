@@ -272,12 +272,17 @@ def _extract_metadata_from_filename(filename: str) -> Dict[str, Optional[str]]:
 
 def write_index_files(root: Path, html_path: Optional[Path] = None, json_path: Optional[Path] = None, generate_thumbnails: bool = False, generate_motion_thumbnails: bool = False, generate_transcodes: bool = False) -> None:
   """Generate index.html and index.json files, plus index.subtitles.json for subtitle search."""
+  from .utils import load_config
   root = Path(root)
   html_path = html_path or (root / "index.html")
   json_path = json_path or (root / "index.json")
   log = get_logger()
 
   idx = build_index(root, generate_thumbnails, generate_motion_thumbnails, generate_transcodes)
+
+  # Inject branding from config
+  config = load_config(root)
+  idx["branding"] = config.get("branding", {})
 
   # Write JSON (exclude the private subtitle index field)
   with open(json_path, "w", encoding="utf-8") as f:

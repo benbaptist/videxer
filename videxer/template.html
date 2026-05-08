@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Media Library Index</title>
+  <title>Media Library</title>
+  <link id="favicon" rel="icon" type="image/x-icon" href="" />
   <style>
   /* ========================================
      CSS Variables & Reset
@@ -629,7 +630,19 @@
       const dirBtn = document.getElementById('direction');
       const viewBtn = document.getElementById('view');
       const breadcrumbEl = document.getElementById('breadcrumb');
-      
+
+      // Apply branding
+      const branding = data.branding || {};
+      const libraryName = branding.name || 'Media Library';
+      document.title = libraryName;
+      document.querySelector('.brand-title').textContent = libraryName;
+      if (branding.favicon) {
+        document.getElementById('favicon').href = branding.favicon;
+      }
+      if (branding.accent) {
+        document.documentElement.style.setProperty('--accent', branding.accent);
+      }
+
       let allItems = data.items || [];
       let currentPath = []; // Stack of directory names
       let currentItems = allItems; // Items in current view
@@ -1560,7 +1573,7 @@
   <div class="app">
     <nav class="nav" aria-label="Library controls">
       <div class="brand">
-        <span class="brand-title">Media Library</span>
+        <span class="brand-title"></span>
       </div>
       <div class="controls">
         <label for="search" class="visually-hidden">Search</label>
