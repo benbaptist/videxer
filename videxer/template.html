@@ -1043,21 +1043,10 @@
           mediaEl.load();
         }
         
-        // Clear the media hash from URL
-        const hash = window.location.hash;
-        if (hash && hash !== '#') {
-          const mediaItem = findMediaByPath(hash.substring(1));
-          if (mediaItem) {
-            // Go back to the directory containing this media
-            const pathParts = mediaItem.path.split('/');
-            pathParts.pop(); // Remove filename
-            if (pathParts.length > 0) {
-              window.location.hash = '#' + pathParts.join('/');
-            } else {
-              window.location.hash = '';
-            }
-          }
-        }
+        // Restore hash to current directory
+        suppressHashChange = true;
+        updateHash();
+        setTimeout(() => { suppressHashChange = false; }, 10);
       }
       closeBtn.addEventListener('click', close);
       modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
@@ -1487,26 +1476,10 @@
         if (media) { try { media.pause(); } catch(e){} media.removeAttribute('src'); media.load && media.load(); }
         immersive.classList.remove('open');
         
-        // Update hash to directory path when closing
-        const hash = window.location.hash;
-        if (hash && hash !== '#') {
-          // If the hash was a media file path, revert to directory view
-          const mediaItem = findMediaByPath(hash.substring(1));
-          if (mediaItem) {
-            // Go back to the directory containing this media
-            const pathParts = mediaItem.path.split('/');
-            pathParts.pop(); // Remove filename
-            suppressHashChange = true;
-            if (pathParts.length > 0) {
-              window.location.hash = '#' + pathParts.join('/');
-            } else {
-              window.location.hash = '';
-            }
-            setTimeout(() => { suppressHashChange = false; }, 10);
-            // Manually navigate since we're suppressing hashchange
-            navigateToPath(pathParts.join('/'));
-          }
-        }
+        // Restore hash to current directory
+        suppressHashChange = true;
+        updateHash();
+        setTimeout(() => { suppressHashChange = false; }, 10);
       }
       immClose.addEventListener('click', closeImmersive);
 
