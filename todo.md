@@ -8,7 +8,6 @@
     - Custom favicon/etc.
 
 # Bugs
-- URL shebang doesn't update when clicking "Back" on video playback
 - Awkward CSS layout issues
 
 # Housekeeping
