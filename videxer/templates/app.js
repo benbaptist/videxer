@@ -63,6 +63,11 @@ async function fetchJSON(path) {
       let thumbSize = 'm'; // s | m | l | xl
       const THUMB_SIZES = { s: 160, m: 260, l: 360, xl: 480 };
 
+      // Image viewer state
+      let imageList = [];
+      let currentImageIndex = -1;
+      let controlsHideTimer = null;
+
       // Preferences stored per-path in localStorage
       const prefKey = 'videxer:prefs:' + window.location.pathname;
 
@@ -290,7 +295,7 @@ async function fetchJSON(path) {
             }
             if (it.primary_media) {
               if (it.media_type === 'image') {
-                media.addEventListener('click', () => openImageViewer(it.primary_media, it.name || it.dir));
+                media.addEventListener('click', () => openImageViewer(it));
               } else {
                 media.addEventListener('click', () => openPlayer(it, it.name || it.dir, it.media_type));
               }
@@ -306,7 +311,7 @@ async function fetchJSON(path) {
               tbtn.type = 'button';
               tbtn.textContent = it.name || it.dir;
               if (it.media_type === 'image') {
-                tbtn.addEventListener('click', () => openImageViewer(it.primary_media, it.name || it.dir));
+                tbtn.addEventListener('click', () => openImageViewer(it));
               } else {
                 tbtn.addEventListener('click', () => openPlayer(it, it.name || it.dir, it.media_type));
               }
@@ -350,6 +355,9 @@ async function fetchJSON(path) {
             container.appendChild(card);
           }
         }
+
+        // Track image-only items for prev/next navigation
+        imageList = list.filter(it => it.type !== 'directory' && it.media_type === 'image' && it.primary_media);
       }
 
       function sortItems(list) {
@@ -507,8 +515,12 @@ async function fetchJSON(path) {
       const modalTitle = document.getElementById('playerTitle');
       const mediaEl = document.getElementById('playerMedia');
       const closeBtn = document.getElementById('playerClose');
+      const imgPrev = document.getElementById('imgPrev');
+      const imgNext = document.getElementById('imgNext');
+
       function close() {
-        modal.classList.remove('open');
+        modal.classList.remove('open', 'img-mode', 'show-controls');
+        clearTimeout(controlsHideTimer);
         // Stop playback and release resource
         if (mediaEl.tagName === 'VIDEO' || mediaEl.tagName === 'AUDIO') {
           mediaEl.pause();
@@ -521,6 +533,52 @@ async function fetchJSON(path) {
         updateHash();
         setTimeout(() => { suppressHashChange = false; }, 10);
       }
+
+      function updateNavButtons() {
+        imgPrev.disabled = currentImageIndex <= 0;
+        imgNext.disabled = currentImageIndex >= imageList.length - 1;
+      }
+
+      function showControlsTemporarily() {
+        modal.classList.add('show-controls');
+        clearTimeout(controlsHideTimer);
+        controlsHideTimer = setTimeout(() => modal.classList.remove('show-controls'), 3000);
+      }
+
+      function navigateImage(delta) {
+        const newIndex = currentImageIndex + delta;
+        if (newIndex < 0 || newIndex >= imageList.length) return;
+        currentImageIndex = newIndex;
+        const item = imageList[currentImageIndex];
+        if (item.path) {
+          suppressHashChange = true;
+          window.location.hash = '#' + item.path;
+          setTimeout(() => { suppressHashChange = false; }, 10);
+        }
+        modalTitle.textContent = item.name || item.dir || 'Image';
+        const img = mediaEl.querySelector('img.modal-image');
+        if (img) { img.alt = modalTitle.textContent; img.src = item.primary_media; }
+        updateNavButtons();
+        // Keep controls visible on touch after navigation
+        if (window.matchMedia('(pointer: coarse)').matches) showControlsTemporarily();
+      }
+
+      imgPrev.addEventListener('click', (e) => { e.stopPropagation(); navigateImage(-1); });
+      imgNext.addEventListener('click', (e) => { e.stopPropagation(); navigateImage(1); });
+
+      // Toggle controls on tap (touch devices) — tap anywhere in modal-dialog that isn't a button
+      modal.querySelector('.modal-dialog').addEventListener('click', (e) => {
+        if (!modal.classList.contains('img-mode')) return;
+        if (e.target.closest('.img-nav') || e.target.closest('.modal-header')) return;
+        if (!window.matchMedia('(pointer: coarse)').matches) return;
+        if (modal.classList.contains('show-controls')) {
+          modal.classList.remove('show-controls');
+          clearTimeout(controlsHideTimer);
+        } else {
+          showControlsTemporarily();
+        }
+      });
+
       closeBtn.addEventListener('click', close);
       modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
       window.addEventListener('keydown', (e) => { 
@@ -530,6 +588,10 @@ async function fetchJSON(path) {
           } else if (modal.classList.contains('open')) {
             close();
           }
+        }
+        if (modal.classList.contains('img-mode') && modal.classList.contains('open')) {
+          if (e.key === 'ArrowLeft') navigateImage(-1);
+          if (e.key === 'ArrowRight') navigateImage(1);
         }
       });
 
@@ -971,22 +1033,27 @@ async function fetchJSON(path) {
         openImmersive(item, title, type);
       };
 
-      window.openImageViewer = (src, title) => {
-        // For images, we need to find the item to get its path
-        const flatItems = flattenAllItems(allItems);
-        const item = flatItems.find(it => it.primary_media === src);
-        
-        if (item && item.path) {
+      window.openImageViewer = (item) => {
+        const src = item.primary_media;
+        const title = item.name || item.dir || 'Image';
+
+        // Find index in current image list
+        currentImageIndex = imageList.findIndex(it => it.primary_media === src);
+
+        if (item.path) {
           suppressHashChange = true;
           window.location.hash = '#' + item.path;
           setTimeout(() => { suppressHashChange = false; }, 10);
         }
-        
-        modalTitle.textContent = title || 'Image';
-        mediaEl.innerHTML = '<img class="modal-image" alt="' + (title || 'Image') + '">';
-        const img = mediaEl.querySelector('img');
-        img.setAttribute('src', src);
-        modal.classList.add('open');
+
+        modalTitle.textContent = title;
+        mediaEl.innerHTML = '<img class="modal-image" alt="' + title.replace(/"/g, '&quot;') + '">';
+        mediaEl.querySelector('img').src = src;
+        modal.classList.add('open', 'img-mode');
+        updateNavButtons();
+
+        // Show controls initially on touch devices
+        if (window.matchMedia('(pointer: coarse)').matches) showControlsTemporarily();
       };
       
       // Handle hash changes (browser back/forward)
@@ -1002,7 +1069,7 @@ async function fetchJSON(path) {
         const mediaItem = findMediaByPath(hash);
         if (mediaItem) {
           if (mediaItem.media_type === 'image') {
-            openImageViewer(mediaItem.primary_media, mediaItem.name || mediaItem.dir);
+            openImageViewer(mediaItem);
           } else {
             openPlayer(mediaItem, mediaItem.name || mediaItem.dir, mediaItem.media_type);
           }
@@ -1018,7 +1085,7 @@ async function fetchJSON(path) {
         const mediaItem = findMediaByPath(initialHash);
         if (mediaItem) {
           if (mediaItem.media_type === 'image') {
-            openImageViewer(mediaItem.primary_media, mediaItem.name || mediaItem.dir);
+            openImageViewer(mediaItem);
           } else {
             openPlayer(mediaItem, mediaItem.name || mediaItem.dir, mediaItem.media_type);
           }
