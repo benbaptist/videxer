@@ -1121,8 +1121,30 @@ async function fetchJSON(path) {
         }
 
         modalTitle.textContent = title;
-        mediaEl.innerHTML = '<img class="modal-image" alt="' + title.replace(/"/g, '&quot;') + '">';
-        mediaEl.querySelector('img').src = src;
+
+        const altText = title.replace(/"/g, '&quot;');
+        const placeholder = item.thumbs && !Array.isArray(item.thumbs) && typeof item.thumbs === 'object'
+          ? item.thumbs.placeholder : null;
+
+        const img = document.createElement('img');
+        img.className = 'modal-image';
+        img.alt = altText;
+
+        if (placeholder && src !== placeholder) {
+          img.src = placeholder;
+          img.classList.add('modal-img-loading');
+          const full = new Image();
+          full.onload = () => {
+            img.src = full.src;
+            img.classList.remove('modal-img-loading');
+          };
+          full.src = src;
+        } else {
+          img.src = src;
+        }
+
+        mediaEl.innerHTML = '';
+        mediaEl.appendChild(img);
         modal.classList.add('open', 'img-mode');
         updateNavButtons();
 
