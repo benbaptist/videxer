@@ -12,15 +12,21 @@
   :root { 
     color-scheme: dark;
     --bg: #0a0a0a;
-    --bg-gradient: linear-gradient(135deg, #0a0a0a 0%, #111111 100%);
-    --panel: rgba(20, 20, 20, 0.6);
-    --nav: rgba(15, 15, 15, 0.7);
-    --card: rgba(25, 25, 25, 0.5);
+    --bg-gradient: linear-gradient(135deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 93%, white) 100%);
+    --surface: #141414;
+    --panel: rgb(from var(--surface) r g b / 0.6);
+    --nav: rgb(from var(--surface) r g b / 0.7);
+    --card: rgb(from var(--surface) r g b / 0.5);
     --border: rgba(255, 255, 255, 0.06);
     --muted: #888888;
     --text: #e8e8e8;
     --accent: #60a5fa;
+    --accent-subtle: rgb(from var(--accent) r g b / 0.15);
+    --accent-mid: rgb(from var(--accent) r g b / 0.25);
+    --accent-glow: rgb(from var(--accent) r g b / 0.5);
     --shadow: rgba(0, 0, 0, 0.5);
+    --ui-overlay: rgba(255, 255, 255, 0.07);
+    --ui-overlay-hover: rgba(255, 255, 255, 0.14);
     --glass-blur: blur(20px);
     --sidebar-width: 320px;
     --spacing: 20px;
@@ -92,7 +98,7 @@
      Navigation Components
      ======================================== */
   .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-  .brand-title { font-weight: 800; letter-spacing: .3px; font-size: 20px; }
+  .brand-title { font-weight: 800; letter-spacing: .3px; font-size: 20px; color: var(--accent); }
   .controls { display: grid; gap: 10px; }
   .controls .row { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -117,13 +123,13 @@
     transition: all 0.3s ease;
   }
   .btn:hover { 
-    background: rgba(40, 40, 40, 0.7);
+    background: var(--ui-overlay-hover);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
     transform: translateY(-1px);
   }
   .hint { font-size: 12px; color: var(--muted); margin-left: 2px; }
   .input:focus, .select:focus, .btn:focus { 
-    outline: 2px solid rgba(96, 165, 250, 0.5); 
+    outline: 2px solid var(--accent-glow); 
     outline-offset: 2px; 
   }
 
@@ -184,7 +190,7 @@
     align-items: center; 
     justify-content: center; 
     aspect-ratio: 16/9;
-    background: linear-gradient(135deg, rgba(30, 30, 30, 0.4) 0%, rgba(40, 40, 40, 0.4) 100%);
+    background: var(--ui-overlay);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
   }
@@ -247,14 +253,15 @@
   .title { font-size: 14px; font-weight: 600; }
   .title button { background: none; border: 0; color: var(--text); font: inherit; cursor: pointer; padding: 0; }
   .title button:hover { text-decoration: underline; }
-  .meta { font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+  .meta { font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .badge { 
-    background: rgba(40, 40, 40, 0.6);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--ui-overlay);
+    color: var(--muted);
     border-radius: 12px; 
-    padding: 4px 10px;
+    padding: 3px 10px;
+    font-weight: 500;
   }
+  ::placeholder { color: var(--muted); opacity: 1; }
   .row .btn { background: transparent; }
 
   /* List view overrides */
@@ -308,11 +315,11 @@
     justify-content: space-between; 
     align-items: center; 
     padding: 16px 20px; 
-    background: rgba(20, 20, 20, 0.6);
+    background: var(--ui-overlay);
   }
   .modal-title { font-size: 15px; font-weight: 600; }
   .modal-close { 
-    background: rgba(40, 40, 40, 0.6);
+    background: var(--ui-overlay);
     border: none;
     border-radius: 12px;
     color: var(--text); 
@@ -322,7 +329,7 @@
     line-height: 1;
     transition: all 0.3s ease;
   }
-  .modal-close:hover { background: rgba(60, 60, 60, 0.8); }
+  .modal-close:hover { background: var(--ui-overlay-hover); }
   .modal-body { background: #000; }
   video, audio { display: block; width: 100%; height: auto; background: #000; }
   img.modal-image { display: block; max-width: 100%; max-height: 80vh; margin: 0 auto; }
@@ -362,7 +369,7 @@
     white-space: nowrap; 
   }
   .immersive-close { 
-    background: rgba(40, 40, 40, 0.8);
+    background: var(--ui-overlay);
     border: none;
     border-radius: 14px; 
     color: var(--text); 
@@ -371,13 +378,13 @@
     transition: all 0.3s ease;
     font-size: 15px;
   }
-  .immersive-close:hover { background: rgba(60, 60, 60, 0.9); }
+  .immersive-close:hover { background: var(--ui-overlay-hover); }
   
   .quality { display: flex; gap: 8px; align-items: center; }
   .quality .btn { padding: 10px 14px; font-size: 14px; }
   .quality .btn.active { 
-    background: rgba(96, 165, 250, 0.25);
-    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.5);
+    background: var(--accent-mid);
+    box-shadow: 0 0 0 2px var(--accent-glow);
   }
   
   .immersive-content { 
@@ -490,7 +497,7 @@
   .transcript-search input {
     width: 100%;
     padding: 6px 10px;
-    background: rgba(20, 20, 20, 0.6);
+    background: var(--ui-overlay);
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
@@ -499,7 +506,7 @@
   }
   
   .transcript-search input:focus {
-    outline: 2px solid rgba(96, 165, 250, 0.5);
+    outline: 2px solid var(--accent-glow);
     outline-offset: 2px;
   }
   
@@ -521,9 +528,9 @@
     font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
   }
   
-  .transcript-segment:hover { background: rgba(40, 40, 40, 0.6); }
+  .transcript-segment:hover { background: var(--ui-overlay); }
   .transcript-segment.active {
-    background: rgba(96, 165, 250, 0.15);
+    background: var(--accent-subtle);
     border-left: 2px solid var(--accent);
   }
   .transcript-segment.hidden { display: none; }
@@ -565,7 +572,7 @@
       width: 35%;
       max-width: 450px;
       min-width: 300px;
-      background: rgba(15, 15, 15, 0.8);
+      background: var(--panel);
       border-radius: 0;
       border-left: 1px solid var(--border);
       display: flex;
@@ -642,6 +649,56 @@
       if (branding.accent) {
         document.documentElement.style.setProperty('--accent', branding.accent);
       }
+      if (branding.background) {
+        document.documentElement.style.setProperty('--bg', branding.background);
+      }
+      if (branding.surface) {
+        document.documentElement.style.setProperty('--surface', branding.surface);
+      }
+
+      // Auto-adjust text and overlay colors based on surface + background luminance
+      (function applyColorSystem() {
+        const surfaceStr = branding.surface || '#141414';
+        const bgStr = branding.background || '#0a0a0a';
+
+        function parseColor(str) {
+          const canvas = document.createElement('canvas');
+          canvas.width = canvas.height = 1;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = str;
+          ctx.fillRect(0, 0, 1, 1);
+          const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+          return { r, g, b };
+        }
+
+        function luminance({ r, g, b }) {
+          const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+          return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+        }
+
+        const root = document.documentElement;
+        const surfaceIsLight = luminance(parseColor(surfaceStr)) > 0.179;
+        const bgIsLight = luminance(parseColor(bgStr)) > 0.179;
+
+        // Text/border colors derived from surface (where most text lives)
+        if (surfaceIsLight) {
+          root.style.setProperty('--text', '#111111');
+          root.style.setProperty('--muted', '#555555');
+          root.style.setProperty('--border', 'rgba(0, 0, 0, 0.1)');
+          root.style.setProperty('--ui-overlay', 'rgba(0, 0, 0, 0.08)');
+          root.style.setProperty('--ui-overlay-hover', 'rgba(0, 0, 0, 0.15)');
+        } else {
+          root.style.setProperty('--text', '#e8e8e8');
+          root.style.setProperty('--muted', '#888888');
+          root.style.setProperty('--border', 'rgba(255, 255, 255, 0.06)');
+          root.style.setProperty('--ui-overlay', 'rgba(255, 255, 255, 0.07)');
+          root.style.setProperty('--ui-overlay-hover', 'rgba(255, 255, 255, 0.14)');
+        }
+
+        // color-scheme and shadow derived from background
+        root.style.setProperty('color-scheme', bgIsLight ? 'light' : 'dark');
+        root.style.setProperty('--shadow', bgIsLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 0, 0, 0.5)');
+      })();
 
       let allItems = data.items || [];
       let currentPath = []; // Stack of directory names
