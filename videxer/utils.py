@@ -686,14 +686,13 @@ def _transcode_with_encoder(input_path: Path, output_path: Path, hw_accel: Optio
         True if transcoding was successful, False otherwise
     """
     encoder = hw_accel.encoder if hw_accel else 'libx264'
-    
-    # Build input parameters with hardware acceleration if available
-    input_params = {}
-    if hw_accel and hw_accel.hwaccel:
-        input_params['hwaccel'] = hw_accel.hwaccel
-    
-    stream = ffmpeg.input(str(input_path), **input_params)
-    
+
+    # Never apply hwaccel to input — hardware decoding requires the full hardware
+    # pipeline to be functional, but hardware encoders accept software-decoded frames.
+    # Using hwaccel on input with e.g. QSV fails when the MFX device isn't accessible
+    # even if the encoder binary is compiled in.
+    stream = ffmpeg.input(str(input_path))
+
     # Web-optimized settings: low resolution, low bitrate, fast encoding
     output_params = {
         'vcodec': encoder,
@@ -704,17 +703,15 @@ def _transcode_with_encoder(input_path: Path, output_path: Path, hw_accel: Optio
         'audio_bitrate': '128k',  # Low audio bitrate
         'movflags': 'faststart'   # Enable fast start for web playback
     }
-    
+
     # Add encoder-specific settings
     if hw_accel:
-        if hw_accel.name in ['VideoToolbox', 'NVENC', 'QSV', 'AMF']:
-            output_params['b:v'] = '2M'  # Target video bitrate for hardware encoders
-        elif hw_accel.name == 'VAAPI':
-            # VAAPI specific settings
+        if hw_accel.name == 'VAAPI':
+            # VAAPI needs hwupload to move frames to GPU; scale before upload
+            output_params['vf'] = 'scale=-2:720,format=nv12,hwupload'
             output_params['b:v'] = '2M'
-            output_params['vf'] = 'format=nv12,hwupload,scale_vaapi=w=-2:h=720'
         else:
-            output_params['b:v'] = '2M'
+            output_params['b:v'] = '2M'  # Target video bitrate for hardware encoders
     else:
         # Software encoding (libx264)
         output_params['preset'] = 'fast'
@@ -1459,10 +1456,124 @@ def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: flo
         return True
 
     except ImportError:
-        # OpenCV not available
-        return False
+        # OpenCV not available — fall back to ffmpeg for frame extraction
+        return _generate_thumbnail_ffmpeg(video_path, output_path, timestamp, size)
     except Exception:
+        return _generate_thumbnail_ffmpeg(video_path, output_path, timestamp, size)
+
+
+def _generate_thumbnail_ffmpeg(video_path: Path, output_path: Path, timestamp: float = 1.0, size: tuple = (320, 180)) -> bool:
+    """Generate a video thumbnail using ffmpeg (fallback when OpenCV is unavailable)."""
+    log = get_logger()
+    try:
+        vf = (
+            f'scale={size[0]}:{size[1]}:force_original_aspect_ratio=decrease,'
+            f'pad={size[0]}:{size[1]}:(ow-iw)/2:(oh-ih)/2'
+        )
+        stream = ffmpeg.input(str(video_path), ss=timestamp)
+        stream = ffmpeg.output(stream, str(output_path), vf=vf, vframes=1)
+        ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+        return output_path.exists()
+    except Exception as e:
+        log.error(f"FFmpeg thumbnail extraction failed: {e}")
         return False
+
+
+def _build_motion_segment_params(hw_accel: Optional[HardwareAccelerator], size: tuple, fps: int, segment_duration: float) -> tuple:
+    """Build ffmpeg input/output params for a motion thumbnail segment.
+
+    Note: hwaccel is intentionally NOT applied to the input — hardware decoding requires
+    the hardware pipeline to be fully functional, but hardware encoding works fine with
+    software-decoded frames and is more portable.
+
+    Returns:
+        (input_params, output_params) dicts ready for ffmpeg
+    """
+    encoder = hw_accel.encoder if hw_accel else 'libx264'
+    vf = f'scale={size[0]}:{size[1]}:force_original_aspect_ratio=decrease,pad={size[0]}:{size[1]}:(ow-iw)/2:(oh-ih)/2'
+
+    output_params = {
+        'vcodec': encoder,
+        'acodec': 'aac',
+        'vf': vf,
+        't': segment_duration,
+        'r': fps,
+        'audio_bitrate': '64k',
+        'maxrate': '500k',
+        'bufsize': '1M',
+        'movflags': 'faststart',
+    }
+
+    if hw_accel:
+        output_params['b:v'] = '500k'
+    else:
+        output_params['preset'] = 'ultrafast'
+        output_params['crf'] = 32
+
+    return output_params
+
+
+def _build_motion_concat_params(hw_accel: Optional[HardwareAccelerator], fps: int) -> dict:
+    """Build ffmpeg output params for concatenating motion thumbnail segments."""
+    encoder = hw_accel.encoder if hw_accel else 'libx264'
+    output_params = {
+        'vcodec': encoder,
+        'acodec': 'aac',
+        'r': fps,
+        'audio_bitrate': '64k',
+        'maxrate': '800k',
+        'bufsize': '1.6M',
+        'movflags': 'faststart',
+        'pix_fmt': 'yuv420p',
+    }
+    if hw_accel:
+        output_params['b:v'] = '800k'
+    else:
+        output_params['preset'] = 'fast'
+        output_params['crf'] = 28
+    return output_params
+
+
+def _try_motion_thumbnail_with_encoder(
+    video_path: Path,
+    output_path: Path,
+    timestamps: list,
+    segment_duration: float,
+    fps: int,
+    size: tuple,
+    hw_accel: Optional[HardwareAccelerator],
+) -> bool:
+    """Attempt to generate a motion thumbnail using a specific encoder (or software).
+
+    Returns True on success, raises on failure.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        segment_files = []
+        output_params = _build_motion_segment_params(hw_accel, size, fps, segment_duration)
+
+        for i, timestamp in enumerate(timestamps):
+            segment_path = Path(temp_dir) / f"segment_{i:02d}.mp4"
+            stream = ffmpeg.input(str(video_path), ss=timestamp)
+            stream = ffmpeg.output(stream, str(segment_path), **output_params)
+            ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            segment_files.append(segment_path)
+
+        if len(segment_files) < 2:
+            return False
+
+        concat_file = Path(temp_dir) / "concat.txt"
+        with open(concat_file, 'w') as f:
+            for segment in segment_files:
+                f.write(f"file '{segment}'\n")
+
+        concat_params = _build_motion_concat_params(hw_accel, fps)
+        stream = ffmpeg.input(str(concat_file), format='concat', safe=0)
+        stream = ffmpeg.output(stream, str(output_path), **concat_params)
+        ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+
+    return output_path.exists()
 
 
 def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: float = 2.0, fps: int = 10, size: tuple = (320, 180)) -> bool:
@@ -1478,125 +1589,49 @@ def generate_motion_thumbnail(video_path: Path, output_path: Path, duration: flo
     Returns:
         True if motion thumbnail was generated successfully, False otherwise
     """
-    try:
-        import tempfile
-        import os
+    log = get_logger()
 
-        # Get video duration using ffprobe
+    try:
         probe = ffmpeg.probe(str(video_path))
-        video_info = next(s for s in probe['streams'] if s['codec_type'] == 'video')
         video_duration = float(probe['format']['duration'])
 
         if video_duration < 1.0:
-            # For very short videos, just create a static video thumbnail
             return generate_video_thumbnail(video_path, output_path, 0.1, size)
 
-        # Calculate timestamps for motion thumbnail segments
-        # Sample 4-6 points throughout the video
-        num_samples = min(6, max(4, int(video_duration / 10)))  # More samples for longer videos
-        segment_duration = duration / num_samples  # Duration per segment
+        num_samples = min(6, max(4, int(video_duration / 10)))
+        segment_duration = duration / num_samples
+        timestamps = [video_duration * (i + 1) / (num_samples + 1) for i in range(num_samples)]
 
-        # Create temporary directory for segment files
-        with tempfile.TemporaryDirectory() as temp_dir:
-            segment_files = []
-
-            for i in range(num_samples):
-                # Distribute timestamps evenly, avoiding the very beginning and end
-                progress = (i + 1) / (num_samples + 1)
-                timestamp = video_duration * progress
-
-                # Extract a short segment at this timestamp
-                segment_path = Path(temp_dir) / f"segment_{i:02d}.mp4"
-
-                # Extract segment with ffmpeg
-                hw_accel = _get_hardware_accelerator()
-                encoder = hw_accel.encoder if hw_accel else 'libx264'
-                
-                # Build input parameters
-                input_params = {'ss': timestamp, 't': segment_duration}
-                if hw_accel and hw_accel.hwaccel:
-                    input_params['hwaccel'] = hw_accel.hwaccel
-                
-                stream = ffmpeg.input(str(video_path), **input_params)
-                
-                # Build output parameters
-                if hw_accel and hw_accel.name == 'VAAPI':
-                    vf = f'format=nv12,hwupload,scale_vaapi=w={size[0]}:h={size[1]}'
-                else:
-                    vf = f'scale={size[0]}:{size[1]}:force_original_aspect_ratio=decrease,pad={size[0]}:{size[1]}:(ow-iw)/2:(oh-ih)/2'
-                
-                output_params = {
-                    'vcodec': encoder,
-                    'acodec': 'aac',
-                    'vf': vf,
-                    'r': fps,
-                    'audio_bitrate': '64k',
-                    'maxrate': '500k',
-                    'bufsize': '1M',
-                    'movflags': 'faststart'
-                }
-                
-                if hw_accel:
-                    output_params['b:v'] = '500k'
-                else:
-                    output_params['preset'] = 'ultrafast'
-                    output_params['crf'] = 32
-                
-                stream = ffmpeg.output(stream, str(segment_path), **output_params)
-                try:
-                    ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
-                except ffmpeg.Error as e:
-                    log = get_logger()
-                    log.error(f"FFmpeg segment extraction failed: {e.stderr.decode() if e.stderr else 'No error output'}")
-                    raise
-                segment_files.append(segment_path)
-
-            if len(segment_files) < 2:
-                return False
-
-            # Create a concat file for ffmpeg
-            concat_file = Path(temp_dir) / "concat.txt"
-            with open(concat_file, 'w') as f:
-                for segment in segment_files:
-                    f.write(f"file '{segment}'\n")
-
-            # Concatenate all segments into final motion thumbnail
-            hw_accel = _get_hardware_accelerator()
-            encoder = hw_accel.encoder if hw_accel else 'libx264'
-            
-            stream = ffmpeg.input(str(concat_file), format='concat', safe=0)
-            
-            output_params = {
-                'vcodec': encoder,
-                'acodec': 'aac',
-                'r': fps,
-                'audio_bitrate': '64k',
-                'maxrate': '800k',
-                'bufsize': '1.6M',
-                'movflags': 'faststart',
-                'pix_fmt': 'yuv420p'
-            }
-            
-            if hw_accel:
-                output_params['b:v'] = '800k'
-            else:
-                output_params['preset'] = 'fast'
-                output_params['crf'] = 28
-            
-            stream = ffmpeg.output(stream, str(output_path), **output_params)
+        # Try hardware encoders in priority order, then software — same pattern as generate_video_transcode
+        for hw_accel in _get_all_available_accelerators():
             try:
-                ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
-            except ffmpeg.Error as e:
-                log = get_logger()
-                log.error(f"FFmpeg concatenation failed: {e.stderr.decode() if e.stderr else 'No error output'}")
-                raise
+                if _try_motion_thumbnail_with_encoder(video_path, output_path, timestamps, segment_duration, fps, size, hw_accel):
+                    log.info(f"Motion thumbnail generated with {hw_accel.name}: {output_path}")
+                    return True
+                log.warning(f"Motion thumbnail with {hw_accel.name} produced no file, trying next encoder")
+            except Exception as e:
+                log.warning(f"Motion thumbnail with {hw_accel.name} failed: {e}, trying next encoder")
+                if output_path.exists():
+                    try:
+                        output_path.unlink()
+                    except Exception:
+                        pass
 
-        return output_path.exists()
+        # Software fallback
+        log.warning("All hardware encoders failed for motion thumbnail, falling back to software encoding")
+        try:
+            if _try_motion_thumbnail_with_encoder(video_path, output_path, timestamps, segment_duration, fps, size, None):
+                log.info(f"Motion thumbnail generated with software encoding: {output_path}")
+                return True
+        except Exception as e:
+            log.error(f"Software motion thumbnail failed: {e}")
+
+        return False
 
     except ImportError:
-        # FFmpeg not available, fall back to old method
         return _generate_motion_thumbnail_gif(video_path, output_path, duration, fps, size)
-    except Exception:
+    except Exception as e:
+        log.error(f"Motion thumbnail generation failed: {e}")
         return False
 
 

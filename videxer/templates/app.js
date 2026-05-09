@@ -1054,8 +1054,11 @@ async function fetchJSON(path) {
         // Check if it's a media file path
         const mediaItem = findMediaByPath(hash);
         if (mediaItem) {
-          // Open the media player
-          openPlayer(mediaItem, mediaItem.name || mediaItem.dir, mediaItem.media_type);
+          if (mediaItem.media_type === 'image') {
+            openImageViewer(mediaItem.primary_media, mediaItem.name || mediaItem.dir);
+          } else {
+            openPlayer(mediaItem, mediaItem.name || mediaItem.dir, mediaItem.media_type);
+          }
         } else {
           // It's a directory path
           navigateToPath(hash);
@@ -1067,8 +1070,11 @@ async function fetchJSON(path) {
       if (initialHash) {
         const mediaItem = findMediaByPath(initialHash);
         if (mediaItem) {
-          // It's a media file, open it
-          openPlayer(mediaItem, mediaItem.name || mediaItem.dir, mediaItem.media_type);
+          if (mediaItem.media_type === 'image') {
+            openImageViewer(mediaItem.primary_media, mediaItem.name || mediaItem.dir);
+          } else {
+            openPlayer(mediaItem, mediaItem.name || mediaItem.dir, mediaItem.media_type);
+          }
         } else {
           // It's a directory, navigate to it
           navigateToPath(initialHash);
