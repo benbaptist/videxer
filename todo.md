@@ -1,7 +1,7 @@
 # Features
 - Left sidebar should (? I didn't finish writing this )
 
-- Prev/next buttons in 'player' (both mobile and desktop viewports)
+- Prev/next buttons in 'video player' (both mobile and desktop viewports)
 - Show when loading subtitles for search and search is incomplete
 - Filters for media type
 - Image viewer modal: 
