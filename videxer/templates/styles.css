@@ -151,7 +151,6 @@
     flex-wrap: wrap; 
     gap: 8px; 
     padding-bottom: 16px; 
-    margin-bottom: 16px; 
   }
   .breadcrumb-item { 
     padding: 8px 14px; 
@@ -222,6 +221,7 @@
     background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.5) 100%); 
     opacity: 0; 
     transition: opacity .3s; 
+    z-index: 1;
   }
   .media:hover .play { opacity: 1; }
   .play-icon { 
@@ -373,11 +373,10 @@
   
   .immersive-header { 
     flex-shrink: 0;
-    height: 60px;
     display: flex; 
     align-items: center; 
     gap: 12px; 
-    padding: 14px 18px; 
+    padding: 10px 16px; 
     background: #000;
   }
   .immersive-title { 
@@ -393,7 +392,7 @@
     border: none;
     border-radius: 14px; 
     color: var(--text); 
-    padding: 10px 16px; 
+    padding: 8px 14px; 
     cursor: pointer;
     transition: all 0.3s ease;
     font-size: 15px;
@@ -401,7 +400,7 @@
   .immersive-close:hover { background: var(--ui-overlay-hover); }
   
   .quality { display: flex; gap: 8px; align-items: center; }
-  .quality .btn { padding: 10px 14px; font-size: 14px; }
+  .quality .btn { padding: 8px 12px; font-size: 13px; }
   .quality .btn.active { 
     background: var(--accent-mid);
     box-shadow: 0 0 0 2px var(--accent-glow);
@@ -466,7 +465,8 @@
       background: rgba(0, 0, 0, 0.3);
     }
 
-    .immersive-media { height: 55vh; }
+    .immersive-media { height: auto; max-height: 65vh; }
+    .immersive-media > video { height: auto; max-height: 65vh; }
 
     .immersive-info { 
       display: flex;
@@ -479,7 +479,7 @@
     
     .immersive-info > div:first-child {
       flex: 1;
-      padding: 24px;
+      padding: 16px;
       overflow-y: auto;
     }
   }
