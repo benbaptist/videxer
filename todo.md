@@ -2,11 +2,7 @@
 - Slider to adjust media thumbnail sizes
 - 'List' mode should show descriptions/more verbose information to utilize the extra space better
 - Save preferences for sorting/order/gridlist/etc. (ensure it's specific to that path; in case of multiple instances on one domain/etc., use localstorage)
-- Left sidebar should 
-- "Branding" customization functions
-    - Name library (takes place of "Media Library")
-    - Color themes
-    - Custom favicon/etc.
+- Left sidebar should (? I didn't finish writing this )
 
 # Bugs
 - Awkward CSS layout issues
