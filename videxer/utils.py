@@ -370,6 +370,10 @@ def _create_media_item(media_file: Path, root: Path, subtitle_files: List[Path],
                 if thumb_rel not in thumb_paths:
                     thumb_paths.append(thumb_rel)
         
+        # For images, use the image itself as thumbnail if none found
+        if not thumb_paths and media_file.suffix.lower() in IMAGE_EXTS:
+            thumb_paths.append(str(relative_path))
+        
         if thumb_paths:
             item['thumbs'] = thumb_paths
             item['thumb_best'] = thumb_paths[0]  # Use first (highest quality) thumbnail

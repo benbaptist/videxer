@@ -314,10 +314,12 @@ async function fetchJSON(path) {
               img.alt = it.name || it.dir;
             }
             media.appendChild(img);
-            const overlay = document.createElement('div');
-            overlay.className = 'play';
-            overlay.innerHTML = '<div class="play-icon">' + getMediaIcon(it.media_type) + '</div>';
-            media.appendChild(overlay);
+            if (it.media_type !== 'image') {
+              const overlay = document.createElement('div');
+              overlay.className = 'play';
+              overlay.innerHTML = '<div class="play-icon">' + getMediaIcon(it.media_type) + '</div>';
+              media.appendChild(overlay);
+            }
 
             if (motionThumbSrc && thumbSrc) {
               const motionVideo = document.createElement('video');
@@ -1028,19 +1030,16 @@ async function fetchJSON(path) {
         const item = flatItems.find(it => it.primary_media === src);
         
         if (item && item.path) {
+          suppressHashChange = true;
           window.location.hash = '#' + item.path;
+          setTimeout(() => { suppressHashChange = false; }, 10);
         }
         
-        if (isDesktop()) {
-          modalTitle.textContent = title || 'Image';
-          mediaEl.innerHTML = '<img class="modal-image" alt="' + (title || 'Image') + '">';
-          const img = mediaEl.querySelector('img');
-          img.setAttribute('src', src);
-          modal.classList.add('open');
-        } else {
-          const itemObj = item || { primary_media: src, media_type: 'image' };
-          openImmersive(itemObj, title || 'Image', 'image');
-        }
+        modalTitle.textContent = title || 'Image';
+        mediaEl.innerHTML = '<img class="modal-image" alt="' + (title || 'Image') + '">';
+        const img = mediaEl.querySelector('img');
+        img.setAttribute('src', src);
+        modal.classList.add('open');
       };
       
       // Handle hash changes (browser back/forward)
