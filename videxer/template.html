@@ -715,7 +715,7 @@
         // Root/home button
         const homeBtn = document.createElement('button');
         homeBtn.className = 'breadcrumb-item btn';
-        homeBtn.textContent = '🏠 Library';
+        homeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" style="vertical-align:-2px;margin-right:5px" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>Library';
         homeBtn.addEventListener('click', () => navigateToRoot());
         breadcrumbEl.appendChild(homeBtn);
         
@@ -1258,7 +1258,7 @@
           downloadBtn.className = 'btn';
           downloadBtn.style.marginTop = '12px';
           downloadBtn.style.display = 'inline-block';
-          downloadBtn.textContent = '⬇ Download Original';
+          downloadBtn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" style="vertical-align:-2px;margin-right:5px" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Download Original';
           downloadBtn.title = 'Download the original file';
           wrap.appendChild(downloadBtn);
         }
