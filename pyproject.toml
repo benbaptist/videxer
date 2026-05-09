@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "videxer"
-version = "0.7.8"
-description = "Static media library generator that creates index.html and JSON files for viewing video collections."
+version = "0.8.0"
+description = "Static media library gallery generator that creates static webpages for viewing. Supports video, images, and audio."
 authors = [{name = "Ben Baptist"}]
 requires-python = ">=3.9"
 dependencies = [
