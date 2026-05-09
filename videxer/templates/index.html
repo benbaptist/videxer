@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Media Library</title>
+  <link id="favicon" rel="icon" type="image/x-icon" href="" />
+  <link rel="stylesheet" href=".videxer/assets/styles.css">
+  <script src=".videxer/assets/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <nav class="nav" aria-label="Library controls">
+      <div class="brand">
+        <span class="brand-title"></span>
+      </div>
+      <div class="controls">
+        <label for="search" class="visually-hidden">Search</label>
+  <input id="search" class="input" placeholder="Search media, subtitles, descriptions..." />
+        <div class="row">
+          <label for="sort" class="visually-hidden">Sort by</label>
+          <select id="sort" class="select">
+            <option value="date" selected>Date</option>
+            <option value="alpha">Alphabetical</option>
+            <option value="size">Size</option>
+            <option value="type">Type</option>
+          </select>
+          <button id="direction" class="btn" aria-pressed="false">Descending</button>
+          <button id="view" class="btn" aria-pressed="false">Grid</button>
+        </div>
+      </div>
+    </nav>
+    <main class="main" role="main">
+      <div id="breadcrumb" class="breadcrumb" style="padding: 12px 18px 0 18px;"></div>
+      <div class="container"></div>
+    </main>
+
+    <!-- Immersive player: fixed overlay on mobile, flex sibling on desktop -->
+    <div id="immersive" class="immersive" aria-hidden="true">
+      <div class="immersive-panel">
+        <div class="immersive-header">
+          <button id="immersiveClose" class="immersive-close" aria-label="Close">Back</button>
+          <div id="immersiveTitle" class="immersive-title">Media</div>
+          <div id="qualityControls" class="quality" style="display:none"></div>
+        </div>
+        <div class="immersive-content">
+          <div id="immersiveMedia" class="immersive-media"></div>
+          <div id="immersiveInfo" class="immersive-info"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal media player/viewer -->
+  <div id="playerModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="playerTitle">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div id="playerTitle" class="modal-title">Media</div>
+        <button id="playerClose" class="modal-close" aria-label="Close">×</button>
+      </div>
+      <div id="playerMedia" class="modal-body">
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
