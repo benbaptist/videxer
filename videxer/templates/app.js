@@ -51,59 +51,6 @@ async function fetchJSON(path) {
       if (branding.favicon) {
         document.getElementById('favicon').href = branding.favicon;
       }
-      if (branding.accent) {
-        document.documentElement.style.setProperty('--accent', branding.accent);
-      }
-      if (branding.background) {
-        document.documentElement.style.setProperty('--bg', branding.background);
-      }
-      if (branding.surface) {
-        document.documentElement.style.setProperty('--surface', branding.surface);
-      }
-
-      // Auto-adjust text and overlay colors based on surface + background luminance
-      (function applyColorSystem() {
-        const surfaceStr = branding.surface || '#141414';
-        const bgStr = branding.background || '#0a0a0a';
-
-        function parseColor(str) {
-          const canvas = document.createElement('canvas');
-          canvas.width = canvas.height = 1;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = str;
-          ctx.fillRect(0, 0, 1, 1);
-          const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-          return { r, g, b };
-        }
-
-        function luminance({ r, g, b }) {
-          const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
-          return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-        }
-
-        const root = document.documentElement;
-        const surfaceIsLight = luminance(parseColor(surfaceStr)) > 0.179;
-        const bgIsLight = luminance(parseColor(bgStr)) > 0.179;
-
-        // Text/border colors derived from surface (where most text lives)
-        if (surfaceIsLight) {
-          root.style.setProperty('--text', '#111111');
-          root.style.setProperty('--muted', '#555555');
-          root.style.setProperty('--border', 'rgba(0, 0, 0, 0.1)');
-          root.style.setProperty('--ui-overlay', 'rgba(0, 0, 0, 0.08)');
-          root.style.setProperty('--ui-overlay-hover', 'rgba(0, 0, 0, 0.15)');
-        } else {
-          root.style.setProperty('--text', '#e8e8e8');
-          root.style.setProperty('--muted', '#888888');
-          root.style.setProperty('--border', 'rgba(255, 255, 255, 0.06)');
-          root.style.setProperty('--ui-overlay', 'rgba(255, 255, 255, 0.07)');
-          root.style.setProperty('--ui-overlay-hover', 'rgba(255, 255, 255, 0.14)');
-        }
-
-        // color-scheme and shadow derived from background
-        root.style.setProperty('color-scheme', bgIsLight ? 'light' : 'dark');
-        root.style.setProperty('--shadow', bgIsLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 0, 0, 0.5)');
-      })();
 
       let allItems = data.items || [];
       let currentPath = []; // Stack of directory names

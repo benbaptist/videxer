@@ -2,27 +2,45 @@
      CSS Variables & Reset
      ======================================== */
   :root { 
-    color-scheme: dark;
-    --bg: #0a0a0a;
-    --bg-gradient: linear-gradient(135deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 93%, white) 100%);
-    --surface: #141414;
-    --panel: rgb(from var(--surface) r g b / 0.6);
-    --nav: rgb(from var(--surface) r g b / 0.7);
-    --card: rgb(from var(--surface) r g b / 0.5);
-    --border: rgba(255, 255, 255, 0.06);
-    --muted: #888888;
-    --text: #e8e8e8;
-    --accent: #60a5fa;
+    color-scheme: dark light;
+    /* Dark mode palette — deep navy with soft indigo accent */
+    --bg: #0c0d14;
+    --bg-gradient: linear-gradient(135deg, #0c0d14 0%, #10121c 100%);
+    --surface: #13151f;
+    --panel: rgb(from var(--surface) r g b / 0.7);
+    --nav: rgb(from var(--surface) r g b / 0.75);
+    --card: rgb(from var(--surface) r g b / 0.55);
+    --border: rgba(255, 255, 255, 0.07);
+    --muted: #7e8298;
+    --text: #e2e4ed;
+    --accent: #7b82d4;
     --accent-subtle: rgb(from var(--accent) r g b / 0.15);
     --accent-mid: rgb(from var(--accent) r g b / 0.25);
-    --accent-glow: rgb(from var(--accent) r g b / 0.5);
-    --shadow: rgba(0, 0, 0, 0.5);
+    --accent-glow: rgb(from var(--accent) r g b / 0.45);
+    --shadow: rgba(0, 0, 0, 0.55);
     --ui-overlay: rgba(255, 255, 255, 0.07);
-    --ui-overlay-hover: rgba(255, 255, 255, 0.14);
+    --ui-overlay-hover: rgba(255, 255, 255, 0.13);
     --glass-blur: blur(20px);
     --sidebar-width: 320px;
     --spacing: 20px;
     --thumb-col-min: 300px;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      /* Light mode palette — cool off-white with medium indigo accent */
+      --bg: #f2f3f8;
+      --bg-gradient: linear-gradient(135deg, #f2f3f8 0%, #e8eaf3 100%);
+      --surface: #ffffff;
+      --border: rgba(0, 0, 0, 0.08);
+      --muted: #6b7082;
+      --text: #1b1c28;
+      --accent: #5c64bf;
+      --shadow: rgba(0, 0, 0, 0.10);
+      --ui-overlay: rgba(0, 0, 0, 0.05);
+      --ui-overlay-hover: rgba(0, 0, 0, 0.10);
+    }
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

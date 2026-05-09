@@ -1403,7 +1403,7 @@ def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: flo
         cap = cv2.VideoCapture(str(video_path))
 
         if not cap.isOpened():
-            return False
+            raise RuntimeError(f"OpenCV could not open video file: {video_path}")
 
         # Get video properties
         fps = cap.get(cv2.CAP_PROP_FPS)
@@ -1423,7 +1423,7 @@ def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: flo
 
         if not ret:
             cap.release()
-            return False
+            raise RuntimeError(f"OpenCV could not read frame at timestamp {timestamp} from: {video_path}")
 
         # Get original frame dimensions
         original_height, original_width = frame.shape[:2]
