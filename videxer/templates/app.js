@@ -113,6 +113,35 @@ async function fetchJSON(path) {
       let sortKey = 'date'; // alpha | size | date | type
       let sortDir = 'desc'; // asc | desc
       let viewMode = 'grid'; // grid | list
+      let thumbSize = 'm'; // s | m | l | xl
+      const THUMB_SIZES = { s: 160, m: 260, l: 360, xl: 480 };
+
+      // Preferences stored per-path in localStorage
+      const prefKey = 'videxer:prefs:' + window.location.pathname;
+
+      function loadPrefs() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(prefKey) || '{}');
+          if (saved.sortKey) sortKey = saved.sortKey;
+          if (saved.sortDir) sortDir = saved.sortDir;
+          if (saved.viewMode) viewMode = saved.viewMode;
+          if (saved.thumbSize && THUMB_SIZES[saved.thumbSize]) thumbSize = saved.thumbSize;
+        } catch {}
+      }
+
+      function savePrefs() {
+        try {
+          localStorage.setItem(prefKey, JSON.stringify({ sortKey, sortDir, viewMode, thumbSize }));
+        } catch {}
+      }
+
+      function applyThumbSize() {
+        document.documentElement.style.setProperty('--thumb-col-min', THUMB_SIZES[thumbSize] + 'px');
+        document.querySelectorAll('.size-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.size === thumbSize);
+        });
+        container.dataset.size = thumbSize;
+      }
 
       function updateBreadcrumb() {
         breadcrumbEl.innerHTML = '';
@@ -361,6 +390,12 @@ async function fetchJSON(path) {
             if (it.metadata) { const a = document.createElement('a'); a.href = it.metadata; a.className='btn'; a.textContent='Metadata JSON'; row.appendChild(a); }
             content.appendChild(title);
             content.appendChild(meta);
+            if (it.description && viewMode === 'list') {
+              const descEl = document.createElement('div');
+              descEl.className = 'description';
+              descEl.textContent = it.description;
+              content.appendChild(descEl);
+            }
             if (row.children.length) content.appendChild(row);
             card.appendChild(content);
             container.appendChild(card);
@@ -488,20 +523,34 @@ async function fetchJSON(path) {
       }
 
       // Initialize controls
+      loadPrefs();
+      sortSel.value = sortKey;
+      dirBtn.textContent = sortDir === 'asc' ? 'Ascending' : 'Descending';
+      viewBtn.textContent = viewMode === 'grid' ? 'Grid' : 'List';
+      applyThumbSize();
       apply();
       search.addEventListener('input', () => {
         apply();
       });
-      sortSel.addEventListener('change', () => { sortKey = sortSel.value; apply(); });
+      sortSel.addEventListener('change', () => { sortKey = sortSel.value; savePrefs(); apply(); });
       dirBtn.addEventListener('click', () => {
         sortDir = (sortDir === 'asc') ? 'desc' : 'asc';
         dirBtn.textContent = (sortDir === 'asc') ? 'Ascending' : 'Descending';
+        savePrefs();
         apply();
       });
       viewBtn.addEventListener('click', () => {
         viewMode = (viewMode === 'grid') ? 'list' : 'grid';
         viewBtn.textContent = viewMode === 'grid' ? 'Grid' : 'List';
+        savePrefs();
         apply();
+      });
+      document.querySelectorAll('.size-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          thumbSize = btn.dataset.size;
+          applyThumbSize();
+          savePrefs();
+        });
       });
 
       // Modal wiring
