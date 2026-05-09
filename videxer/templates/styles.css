@@ -217,7 +217,8 @@
     overflow: hidden; 
     border-radius: 20px 20px 0 0; 
   }
-  .thumb { width: 100%; aspect-ratio: 16/9; object-fit: contain; background: #0a0a0a; display: block; }
+  .thumb { width: 100%; aspect-ratio: 16/9; object-fit: contain; background: #0a0a0a; display: block; transition: filter 0.25s ease; }
+  .thumb.thumb-loading { filter: blur(8px); transform: scale(1.05); }
   .motion-thumb { 
     width: 100%; 
     height: 100%; 

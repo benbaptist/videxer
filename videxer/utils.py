@@ -340,43 +340,35 @@ def _create_media_item(media_file: Path, root: Path, subtitle_files: List[Path],
             'media_type': _determine_media_type(media_file.suffix),
         }
         
-        # Process thumbnails
-        thumb_paths = []
         log = get_logger()
-        
-        # First, check for existing thumbnails (user-provided or previously found)
+
+        # Process thumbnails using the multi-format engine.
+        # Find a user-provided source image (poster/thumb) if present.
         existing_thumbnails = _find_existing_thumbnails(media_file, root)
-        if existing_thumbnails:
-            thumb_paths = [str(t.relative_to(root)) for t in existing_thumbnails]
-            log.debug(f"Found {len(existing_thumbnails)} existing thumbnail(s) for {media_file.name}")
-        
-        # Also include any thumbnails passed from the grouping function
-        if thumbnail_files:
-            for t in thumbnail_files:
-                thumb_rel = str(t.relative_to(root))
-                if thumb_rel not in thumb_paths:
-                    thumb_paths.append(thumb_rel)
-        
-        # Generate thumbnail for video files if requested AND no existing thumbnails found
-        if generate_thumbnails and media_file.suffix.lower() in VIDEO_EXTS and not thumb_paths:
-            log.debug(f"Generating thumbnail for {media_file.name}")
-            thumb_filename = f"{media_file.stem}_thumb.jpg"
-            assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
-            ensure_dir(assets_dir)
-            thumb_path = assets_dir / thumb_filename
-            
-            if thumb_path.exists() or generate_video_thumbnail(media_file, thumb_path):
-                thumb_rel = str(thumb_path.relative_to(root))
-                if thumb_rel not in thumb_paths:
-                    thumb_paths.append(thumb_rel)
-        
-        # For images, use the image itself as thumbnail if none found
-        if not thumb_paths and media_file.suffix.lower() in IMAGE_EXTS:
-            thumb_paths.append(str(relative_path))
-        
-        if thumb_paths:
-            item['thumbs'] = thumb_paths
-            item['thumb_best'] = thumb_paths[0]  # Use first (highest quality) thumbnail
+        # Also fold in any thumbnails passed from the grouping function
+        for t in thumbnail_files:
+            if t not in existing_thumbnails:
+                existing_thumbnails.append(t)
+
+        source_image_path = existing_thumbnails[0] if existing_thumbnails else None
+
+        suffix = media_file.suffix.lower()
+        assets_dir = root / INDEXER_ASSETS_DIR / THUMBNAILS_DIR
+
+        if generate_thumbnails and (suffix in VIDEO_EXTS or suffix in IMAGE_EXTS):
+            log.debug(f"Generating thumbnails for {media_file.name}")
+            thumbs_dict = generate_static_thumbnails(
+                media_file,
+                media_file.stem,
+                assets_dir,
+                root,
+                source_image_path=source_image_path,
+            )
+            if thumbs_dict:
+                item['thumbs'] = thumbs_dict
+        elif existing_thumbnails:
+            # No generation requested but user-provided thumb exists — expose it
+            item['thumbs'] = {"original": {"jpg": str(existing_thumbnails[0].relative_to(root))}}
         
         # Generate motion thumbnail
         if generate_motion_thumbnails and media_file.suffix.lower() in VIDEO_EXTS:
@@ -1379,6 +1371,274 @@ def _thumb_sort_key(filename: str) -> int:
         pass
     return 0
 
+
+# ---------------------------------------------------------------------------
+# Static thumbnail engine — multi-format, multi-level
+# ---------------------------------------------------------------------------
+
+# Quality level definitions ordered from smallest to largest.
+# Each level specifies the canvas size, which formats to attempt, and per-format quality.
+# "placeholder" is an ultra-low-quality tiny image for LQIP progressive loading.
+THUMB_LEVELS = [
+    {
+        "name": "placeholder",
+        "size": (20, 12),
+        "formats": ["webp"],
+        "quality": {"webp": 15},
+    },
+    {
+        "name": "small",
+        "size": (320, 180),
+        "formats": ["avif", "webp", "jpg"],
+        "quality": {"avif": 68, "webp": 72, "jpg": 78},
+    },
+    {
+        "name": "medium",
+        "size": (640, 360),
+        "formats": ["avif", "webp", "jpg"],
+        "quality": {"avif": 72, "webp": 78, "jpg": 82},
+    },
+    {
+        "name": "large",
+        "size": (1280, 720),
+        "formats": ["webp", "jpg"],
+        "quality": {"webp": 82, "jpg": 85},
+    },
+]
+
+# PIL format identifier mapping (our name → PIL save format name)
+_PIL_FORMAT_NAME = {"jpg": "JPEG", "webp": "WEBP", "avif": "AVIF"}
+
+# Cached detection result
+_PIL_SUPPORTED_FORMATS: Optional[set] = None
+
+
+def _detect_pil_formats() -> set:
+    """Return the set of image formats ('jpg', 'webp', 'avif') that PIL can encode."""
+    supported: set = {"jpg"}
+    try:
+        from PIL import Image, features  # noqa: F401
+
+        if features.check("webp"):
+            supported.add("webp")
+
+        # AVIF: attempt a tiny encode to confirm runtime support
+        try:
+            import io
+            buf = io.BytesIO()
+            Image.new("RGB", (1, 1)).save(buf, "AVIF")
+            supported.add("avif")
+        except Exception:
+            pass
+
+    except ImportError:
+        pass
+
+    return supported
+
+
+def _get_pil_formats() -> set:
+    """Return cached set of PIL-encodable image formats."""
+    global _PIL_SUPPORTED_FORMATS
+    if _PIL_SUPPORTED_FORMATS is None:
+        _PIL_SUPPORTED_FORMATS = _detect_pil_formats()
+    return _PIL_SUPPORTED_FORMATS
+
+
+def _pil_resize_letterbox(img, target_size: tuple):
+    """Resize a PIL Image to fit inside *target_size* with black letterboxing.
+
+    Returns an RGB image of exactly *target_size*.
+    """
+    from PIL import Image
+
+    tw, th = target_size
+    iw, ih = img.size
+    scale = min(tw / iw, th / ih)
+    nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
+    resized = img.resize((nw, nh), Image.LANCZOS)
+    canvas = Image.new("RGB", (tw, th), (0, 0, 0))
+    canvas.paste(resized, ((tw - nw) // 2, (th - nh) // 2))
+    return canvas
+
+
+def _extract_video_frame_pil(video_path: Path) -> Optional[Any]:
+    """Extract a representative frame from a video file, returning a PIL Image.
+
+    Tries OpenCV first (preloaded), then falls back to an ffmpeg temp-file approach.
+    Returns None on failure.
+    """
+    try:
+        import cv2
+        from PIL import Image
+        import numpy as np
+
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            raise RuntimeError("cannot open video")
+
+        fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = total_frames / fps if fps > 0 else 0
+
+        # Aim for 10% into the video (min 1 s)
+        timestamp = max(1.0, duration * 0.10)
+        if duration > 0 and timestamp >= duration:
+            timestamp = duration * 0.5
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(timestamp * fps))
+        ret, frame = cap.read()
+        cap.release()
+
+        if not ret:
+            raise RuntimeError("cannot read frame")
+
+        return Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+    except Exception:
+        pass
+
+    # ffmpeg fallback
+    try:
+        import tempfile, os
+        from PIL import Image
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            stream = ffmpeg.input(str(video_path), ss=1.0)
+            stream = ffmpeg.output(stream, tmp_path, vframes=1, loglevel="quiet")
+            ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            if Path(tmp_path).exists():
+                img = Image.open(tmp_path).copy()
+                return img.convert("RGB")
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return None
+
+
+def _generate_thumb_variants(source_img, stem: str, assets_dir: Path, root: Path) -> dict:
+    """Generate all thumbnail levels/formats from a PIL source image.
+
+    Files that already exist on disk are reused (not regenerated).
+
+    Returns a structured thumbs dict::
+
+        {
+            "placeholder": "rel/path/stem_placeholder.webp",
+            "small":  {"jpg": "...", "webp": "...", "avif": "..."},
+            "medium": {"jpg": "...", "webp": "..."},
+            "large":  {"jpg": "...", "webp": "..."},
+        }
+    """
+    supported = _get_pil_formats()
+    thumbs: dict = {}
+
+    for level in THUMB_LEVELS:
+        level_name = level["name"]
+        resized = _pil_resize_letterbox(source_img, level["size"])
+        level_paths: dict = {}
+
+        for fmt in level["formats"]:
+            if fmt not in supported:
+                continue
+
+            quality = level["quality"].get(fmt, 80)
+            out_path = assets_dir / f"{stem}_{level_name}.{fmt}"
+
+            if not out_path.exists():
+                save_kwargs: dict = {"quality": quality, "optimize": True}
+                if fmt == "webp":
+                    save_kwargs["method"] = 6  # best compression
+                resized.save(str(out_path), _PIL_FORMAT_NAME[fmt], **save_kwargs)
+
+            if out_path.exists():
+                level_paths[fmt] = str(out_path.relative_to(root))
+
+        if level_name == "placeholder":
+            # Placeholder is a single path (webp only)
+            if "webp" in level_paths:
+                thumbs["placeholder"] = level_paths["webp"]
+        elif level_paths:
+            thumbs[level_name] = level_paths
+
+    return thumbs
+
+
+def generate_static_thumbnails(
+    media_file: Path,
+    stem: str,
+    assets_dir: Path,
+    root: Path,
+    source_image_path: Optional[Path] = None,
+) -> dict:
+    """Generate multi-format, multi-level static thumbnail variants for a media file.
+
+    For videos: extracts a representative frame (unless *source_image_path* overrides it).
+    For images: uses the image file directly as the source.
+
+    Args:
+        media_file: The primary media file (video or image).
+        stem: Output filename stem (no extension, no level/format suffix).
+        assets_dir: Directory to write thumbnail files into.
+        root: Root directory for computing relative paths in the result dict.
+        source_image_path: Optional explicit image to use as the thumbnail source
+            (useful when the caller has a user-provided poster/thumb).
+
+    Returns:
+        Structured thumbs dict (see :func:`_generate_thumb_variants`) or ``{}`` on failure.
+    """
+    log = get_logger()
+
+    try:
+        from PIL import Image  # noqa: F401
+    except ImportError:
+        log.warning("Pillow not installed; skipping multi-format thumbnail generation")
+        return {}
+
+    ensure_dir(assets_dir)
+
+    from PIL import Image
+
+    source_img = None
+
+    # 1. Prefer an explicit source image (e.g. user-provided poster/thumb)
+    if source_image_path and source_image_path.exists():
+        try:
+            source_img = Image.open(source_image_path).convert("RGB")
+        except Exception as exc:
+            log.debug(f"Could not open source image {source_image_path}: {exc}")
+
+    # 2. Derive source from the media file itself
+    if source_img is None:
+        suffix = media_file.suffix.lower()
+        if suffix in IMAGE_EXTS:
+            try:
+                source_img = Image.open(media_file).convert("RGB")
+            except Exception as exc:
+                log.error(f"Could not open image file {media_file}: {exc}")
+                return {}
+        elif suffix in VIDEO_EXTS:
+            source_img = _extract_video_frame_pil(media_file)
+            if source_img is None:
+                log.error(f"Could not extract frame from {media_file}")
+                return {}
+        else:
+            return {}
+
+    return _generate_thumb_variants(source_img, stem, assets_dir, root)
+
+
+# ---------------------------------------------------------------------------
+# Legacy single-JPEG thumbnail helpers (kept as internal ffmpeg fallback)
+# ---------------------------------------------------------------------------
 
 def generate_video_thumbnail(video_path: Path, output_path: Path, timestamp: float = 1.0, size: tuple = (320, 180)) -> bool:
     """Generate a thumbnail image from a video file at the specified timestamp.

@@ -18,11 +18,82 @@ async function fetchJSON(path) {
       return n.toFixed(n >= 10 || i === 0 ? 0 : 1) + ' ' + units[i];
     }
 
-    function pickThumb(it) {
-      // Prefer explicit best thumbnail if present; else last in thumbs[]
-      if (it.thumb_best) return it.thumb_best;
-      if (it.thumbs && it.thumbs.length) return it.thumbs[it.thumbs.length - 1];
-      return '';
+    // ---------------------------------------------------------------------------
+    // Image format support detection (cached async probe)
+    // ---------------------------------------------------------------------------
+    const _fmtSupport = { detected: false, avif: false, webp: false };
+
+    async function detectImageFormats() {
+      if (_fmtSupport.detected) return;
+      const probes = {
+        avif: 'data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAABcAAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAAAEAAAABAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgQAMAAAAABNjb2xybmNseAACAAIAAYAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAACVtZGF0EgAKCBgABogQEDQgMgkQAAAAB8dSLfI=',
+        webp: 'data:image/webp;base64,UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JZACdAEO/gHOAAA=',
+      };
+      await Promise.all(Object.entries(probes).map(([fmt, src]) =>
+        new Promise(resolve => {
+          const img = new Image();
+          img.onload = () => { _fmtSupport[fmt] = img.width > 0; resolve(); };
+          img.onerror = () => resolve();
+          img.src = src;
+        })
+      ));
+      _fmtSupport.detected = true;
+    }
+
+    // Map UI thumb-size keys to index level names
+    const THUMB_LEVEL_MAP = { s: 'small', m: 'medium', l: 'large', xl: 'large' };
+
+    /**
+     * Pick the best URL from a thumbs object for the given UI size key.
+     * Handles both the new structured dict and legacy array/string formats.
+     */
+    function pickThumbUrl(thumbs, sizeKey) {
+      if (!thumbs) return '';
+      // Legacy: plain string
+      if (typeof thumbs === 'string') return thumbs;
+      // Legacy: array
+      if (Array.isArray(thumbs)) return thumbs[thumbs.length - 1] || '';
+
+      // New structured format
+      const levelName = THUMB_LEVEL_MAP[sizeKey] || 'medium';
+      const level = thumbs[levelName] || thumbs.medium || thumbs.small || thumbs.original;
+      if (!level) return '';
+      if (typeof level === 'string') return level;
+
+      // Choose best format the browser supports
+      if (_fmtSupport.avif && level.avif) return level.avif;
+      if (_fmtSupport.webp && level.webp) return level.webp;
+      return level.jpg || Object.values(level)[0] || '';
+    }
+
+    /**
+     * Create an <img> element with LQIP progressive loading.
+     * Shows placeholder (blurred) immediately, swaps to full quality once loaded.
+     */
+    function createProgressiveImg(thumbs, alt, currentSize) {
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.loading = 'lazy';
+      img.alt = alt;
+
+      const placeholder = thumbs && !Array.isArray(thumbs) && typeof thumbs === 'object'
+        ? thumbs.placeholder : null;
+      const fullSrc = pickThumbUrl(thumbs, currentSize);
+
+      if (placeholder && fullSrc && fullSrc !== placeholder) {
+        img.src = placeholder;
+        img.classList.add('thumb-loading');
+        const full = new Image();
+        full.onload = () => {
+          img.src = full.src;
+          img.classList.remove('thumb-loading');
+        };
+        full.src = fullSrc;
+      } else if (fullSrc) {
+        img.src = fullSrc;
+      }
+
+      return img;
     }
 
     function getMediaIcon(type) {
@@ -35,6 +106,9 @@ async function fetchJSON(path) {
     }
 
     async function load() {
+      // Probe format support before rendering anything
+      await detectImageFormats();
+
       const data = await fetchJSON('index.json');
       const container = document.querySelector('.container');
       const search = document.getElementById('search');
@@ -253,18 +327,18 @@ async function fetchJSON(path) {
             const media = document.createElement('button');
             media.className = 'media';
             media.type = 'button';
-            const img = document.createElement('img');
-            img.className = 'thumb';
-            img.loading = 'lazy';
-            const thumbSrc = pickThumb(it);
             const motionThumbSrc = it.motion_thumb;
-            if (thumbSrc) {
-              img.src = thumbSrc;
-              img.alt = it.name || it.dir;
-            } else {
-              img.src = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" fill="#1f2937"/><text x="160" y="90" text-anchor="middle" fill="#9ca3af" font-family="system-ui" font-size="14">' + it.media_type + '</text></svg>');
-              img.alt = it.name || it.dir;
-            }
+            const hasThumbs = !!it.thumbs;
+            const img = hasThumbs
+              ? createProgressiveImg(it.thumbs, it.name || it.dir, thumbSize)
+              : (() => {
+                  const el = document.createElement('img');
+                  el.className = 'thumb';
+                  el.loading = 'lazy';
+                  el.alt = it.name || it.dir;
+                  el.src = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" fill="#1f2937"/><text x="160" y="90" text-anchor="middle" fill="#9ca3af" font-family="system-ui" font-size="14">' + it.media_type + '</text></svg>');
+                  return el;
+                })();
             media.appendChild(img);
             if (it.media_type !== 'image') {
               const overlay = document.createElement('div');
@@ -273,7 +347,7 @@ async function fetchJSON(path) {
               media.appendChild(overlay);
             }
 
-            if (motionThumbSrc && thumbSrc) {
+            if (motionThumbSrc && hasThumbs) {
               const motionVideo = document.createElement('video');
               motionVideo.className = 'motion-thumb';
               motionVideo.src = motionThumbSrc;
