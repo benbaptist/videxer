@@ -604,6 +604,22 @@ def _check_encoder_available(encoder_name: str) -> bool:
         return False
 
 
+def _get_vaapi_device() -> Optional[str]:
+    """Find the first available VAAPI render device."""
+    import glob
+    devices = sorted(glob.glob('/dev/dri/renderD*'))
+    return devices[0] if devices else None
+
+
+def _apply_hw_global_args(stream, hw_accel: Optional['HardwareAccelerator']):
+    """Apply hardware-specific global arguments to an ffmpeg stream node."""
+    if hw_accel and hw_accel.name == 'VAAPI':
+        device = _get_vaapi_device()
+        if device:
+            stream = stream.global_args('-vaapi_device', device)
+    return stream
+
+
 def _detect_hardware_accelerator() -> Optional[HardwareAccelerator]:
     """Detect the best available hardware accelerator.
     
@@ -710,6 +726,7 @@ def _transcode_with_encoder(input_path: Path, output_path: Path, hw_accel: Optio
         output_params['crf'] = 28  # Higher CRF = lower quality, smaller file
     
     stream = ffmpeg.output(stream, str(output_path), **output_params)
+    stream = _apply_hw_global_args(stream, hw_accel)
     try:
         ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
     except ffmpeg.Error as e:
@@ -1765,6 +1782,8 @@ def _build_motion_segment_params(hw_accel: Optional[HardwareAccelerator], size: 
     }
 
     if hw_accel:
+        if hw_accel.name == 'VAAPI':
+            output_params['vf'] = vf + ',format=nv12,hwupload'
         output_params['b:v'] = '500k'
     else:
         output_params['preset'] = 'ultrafast'
@@ -1787,6 +1806,9 @@ def _build_motion_concat_params(hw_accel: Optional[HardwareAccelerator], fps: in
         'pix_fmt': 'yuv420p',
     }
     if hw_accel:
+        if hw_accel.name == 'VAAPI':
+            output_params.pop('pix_fmt', None)
+            output_params['vf'] = 'format=nv12,hwupload'
         output_params['b:v'] = '800k'
     else:
         output_params['preset'] = 'fast'
@@ -1817,6 +1839,7 @@ def _try_motion_thumbnail_with_encoder(
             segment_path = Path(temp_dir) / f"segment_{i:02d}.mp4"
             stream = ffmpeg.input(str(video_path), ss=timestamp)
             stream = ffmpeg.output(stream, str(segment_path), **output_params)
+            stream = _apply_hw_global_args(stream, hw_accel)
             ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
             segment_files.append(segment_path)
 
@@ -1831,6 +1854,7 @@ def _try_motion_thumbnail_with_encoder(
         concat_params = _build_motion_concat_params(hw_accel, fps)
         stream = ffmpeg.input(str(concat_file), format='concat', safe=0)
         stream = ffmpeg.output(stream, str(output_path), **concat_params)
+        stream = _apply_hw_global_args(stream, hw_accel)
         ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
 
     return output_path.exists()
