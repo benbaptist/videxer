@@ -70,6 +70,9 @@ async function fetchJSON(path) {
      * Create an <img> element with LQIP progressive loading.
      * Shows placeholder (blurred) immediately, swaps to full quality once loaded.
      */
+    // Track absolute URLs of thumbnails that have been fully loaded in the grid
+    const loadedThumbUrls = new Set();
+
     function createProgressiveImg(thumbs, alt, currentSize) {
       const img = document.createElement('img');
       img.className = 'thumb';
@@ -87,10 +90,12 @@ async function fetchJSON(path) {
         full.onload = () => {
           img.src = full.src;
           img.classList.remove('thumb-loading');
+          loadedThumbUrls.add(full.src);
         };
         full.src = fullSrc;
       } else if (fullSrc) {
         img.src = fullSrc;
+        img.onload = () => loadedThumbUrls.add(img.src);
       }
 
       return img;
@@ -1126,15 +1131,18 @@ async function fetchJSON(path) {
 
         const altText = title.replace(/"/g, '&quot;');
 
-        // Find the best already-cached thumbnail to use as placeholder
-        // Prefer the highest quality thumb that the browser has already loaded
+        // Find the best already-loaded thumbnail to use as placeholder while full image loads
         const bestCachedThumb = (() => {
           if (!item.thumbs || Array.isArray(item.thumbs) || typeof item.thumbs !== 'object') return null;
           const candidates = ['large', 'medium', 'small'].map(k => pickThumbUrl(item.thumbs, k)).filter(Boolean);
+          // Resolve relative URLs to absolute for comparison against loadedThumbUrls
+          const base = document.baseURI;
           for (const url of candidates) {
             if (url === src) continue;
-            if (performance.getEntriesByName(url).length > 0) return url;
+            const abs = new URL(url, base).href;
+            if (loadedThumbUrls.has(abs)) return url;
           }
+          // Fall back to placeholder — already in browser cache from grid render
           return item.thumbs.placeholder || null;
         })();
 
