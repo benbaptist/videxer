@@ -350,6 +350,22 @@
     background: var(--ui-overlay);
   }
   .modal-title { font-size: 15px; font-weight: 600; }
+  .modal-actions { display: flex; align-items: center; gap: 6px; }
+  .modal-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ui-overlay);
+    border: none;
+    border-radius: 12px;
+    color: var(--text);
+    cursor: pointer;
+    padding: 6px 10px;
+    line-height: 1;
+    transition: all 0.3s ease;
+    text-decoration: none;
+  }
+  .modal-action-btn:hover { background: var(--ui-overlay-hover); }
   .modal-close { 
     background: var(--ui-overlay);
     border: none;
@@ -373,11 +389,14 @@
      ======================================== */
   .modal.img-mode {
     background: rgba(0, 0, 0, 0.95);
+    align-items: stretch;
+    justify-content: stretch;
   }
   .modal.img-mode .modal-dialog {
-    width: 95vw;
-    max-width: 95vw;
-    height: 95vh;
+    width: 100vw;
+    max-width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
     background: transparent;
     box-shadow: none;
     border-radius: 0;
@@ -419,6 +438,115 @@
     object-fit: contain;
     user-select: none;
     -webkit-user-select: none;
+  }
+
+  /* Info panel — mobile: bottom overlay gradient */
+  .modal-info-panel {
+    display: none;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+    padding: 48px 24px 24px;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.6;
+    pointer-events: none;
+  }
+  .modal-info-panel .info-name {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .modal-info-panel .info-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    opacity: 0.85;
+    font-size: 12px;
+  }
+  .modal-info-panel .info-row span:first-child {
+    opacity: 0.6;
+    flex-shrink: 0;
+  }
+  .modal-info-panel .info-row span:last-child {
+    text-align: right;
+  }
+  .modal-info-panel .info-desc {
+    display: block;
+    margin-top: 6px;
+    font-size: 13px;
+    opacity: 0.8;
+  }
+  .modal.show-info .modal-info-panel {
+    display: block;
+  }
+
+  /* Wide viewport: side panel layout when info is open */
+  @media (min-width: 900px) {
+    .modal.img-mode.show-info .modal-dialog {
+      flex-direction: column;
+    }
+    .modal.img-mode.show-info .modal-body {
+      flex-direction: row;
+      align-items: stretch;
+    }
+    .modal.img-mode.show-info .modal-body img.modal-image {
+      flex: 1 1 0;
+      min-width: 0;
+      height: 100%;
+      object-fit: contain;
+    }
+    .modal.img-mode.show-info .modal-info-panel {
+      /* Switch from bottom overlay to side panel */
+      position: static;
+      display: flex;
+      flex-direction: column;
+      flex: 0 0 280px;
+      width: 280px;
+      background: rgba(15, 15, 18, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-left: 1px solid rgba(255,255,255,0.08);
+      padding: 24px 20px;
+      pointer-events: auto;
+      overflow-y: auto;
+      gap: 4px;
+    }
+    .modal.img-mode.show-info .modal-info-panel .info-row {
+      flex-direction: column;
+      gap: 1px;
+    }
+    .modal.img-mode.show-info .modal-info-panel .info-row span:last-child {
+      text-align: left;
+      opacity: 1;
+    }
+    /* header stays full-width across both columns */
+    .modal.img-mode.show-info .modal-header {
+      position: static;
+      opacity: 1;
+      pointer-events: auto;
+      background: rgba(15, 15, 18, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      padding: 12px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    /* Restructure: header + (body+panel) stacked vertically */
+    .modal.img-mode.show-info .modal-dialog {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      grid-template-columns: 1fr;
+      overflow: hidden;
+    }
+    .modal.img-mode.show-info .modal-body {
+      display: flex;
+      flex-direction: row;
+      overflow: hidden;
+      min-height: 0;
+    }
   }
 
   /* Prev/Next nav buttons */

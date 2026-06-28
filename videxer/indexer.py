@@ -227,6 +227,12 @@ def _process_media_item(item: Dict, root: Path) -> Optional[Dict]:
             processed_item["transcoded"] = item["transcoded"]
         if "subtitles" in item:
             processed_item["subtitles"] = item["subtitles"]
+        if "width" in item:
+            processed_item["width"] = item["width"]
+        if "height" in item:
+            processed_item["height"] = item["height"]
+        if "exif" in item:
+            processed_item["exif"] = item["exif"]
 
         return processed_item
 

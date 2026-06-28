@@ -594,11 +594,51 @@ async function fetchJSON(path) {
       const modalTitle = document.getElementById('playerTitle');
       const mediaEl = document.getElementById('playerMedia');
       const closeBtn = document.getElementById('playerClose');
+      const infoBtn = document.getElementById('playerInfo');
+      const downloadBtn = document.getElementById('playerDownload');
       const imgPrev = document.getElementById('imgPrev');
       const imgNext = document.getElementById('imgNext');
+      const infoPanel = document.getElementById('playerInfoPanel');
+      let currentModalItem = null;
+
+      function renderInfoPanel(item) {
+        if (!item) { infoPanel.innerHTML = ''; return; }
+        const rows = [];
+        if (item.created_time) rows.push(`<div class="info-row"><span>Date</span><span>${fmtDate(item.created_time)}</span></div>`);
+        if (item.size) rows.push(`<div class="info-row"><span>File size</span><span>${fmtSize(item.size)}</span></div>`);
+        if (item.width && item.height) rows.push(`<div class="info-row"><span>Dimensions</span><span>${item.width} × ${item.height} px</span></div>`);
+        if (item.exif) {
+          const exif = item.exif;
+          if (exif.Make || exif.Model) rows.push(`<div class="info-row"><span>Camera</span><span>${[exif.Make, exif.Model].filter(Boolean).join(' ')}</span></div>`);
+          if (exif.DateTimeOriginal) rows.push(`<div class="info-row"><span>Taken</span><span>${exif.DateTimeOriginal}</span></div>`);
+          if (exif.ExposureTime) rows.push(`<div class="info-row"><span>Exposure</span><span>${exif.ExposureTime}s</span></div>`);
+          if (exif.FNumber) rows.push(`<div class="info-row"><span>Aperture</span><span>f/${exif.FNumber}</span></div>`);
+          if (exif.ISOSpeedRatings) rows.push(`<div class="info-row"><span>ISO</span><span>${exif.ISOSpeedRatings}</span></div>`);
+          if (exif.FocalLength) rows.push(`<div class="info-row"><span>Focal length</span><span>${exif.FocalLength}</span></div>`);
+        }
+        if (item.description) rows.push(`<div class="info-row info-desc">${item.description}</div>`);
+        infoPanel.innerHTML = `<div class="info-name">${item.name || item.dir || ''}</div>${rows.join('')}`;
+      }
+
+      function setModalItem(item) {
+        currentModalItem = item;
+        renderInfoPanel(item);
+        if (item && item.primary_media) {
+          downloadBtn.href = item.primary_media;
+          downloadBtn.download = item.name || '';
+          downloadBtn.style.display = '';
+        } else {
+          downloadBtn.style.display = 'none';
+        }
+      }
+
+      infoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        modal.classList.toggle('show-info');
+      });
 
       function close() {
-        modal.classList.remove('open', 'img-mode', 'show-controls');
+        modal.classList.remove('open', 'img-mode', 'show-controls', 'show-info');
         clearTimeout(controlsHideTimer);
         // Stop playback and release resource
         if (mediaEl.tagName === 'VIDEO' || mediaEl.tagName === 'AUDIO') {
@@ -606,6 +646,7 @@ async function fetchJSON(path) {
           mediaEl.removeAttribute('src');
           mediaEl.load();
         }
+        mediaEl.querySelectorAll('img.modal-image').forEach(el => el.remove());
         
         // Restore hash to current directory
         suppressHashChange = true;
@@ -637,6 +678,7 @@ async function fetchJSON(path) {
         modalTitle.textContent = item.name || item.dir || 'Image';
         const img = mediaEl.querySelector('img.modal-image');
         if (img) { img.alt = modalTitle.textContent; img.src = item.primary_media; }
+        setModalItem(item);
         updateNavButtons();
         // Keep controls visible on touch after navigation
         if (window.matchMedia('(pointer: coarse)').matches) showControlsTemporarily();
@@ -1163,9 +1205,12 @@ async function fetchJSON(path) {
           img.src = src;
         }
 
-        mediaEl.innerHTML = '';
-        mediaEl.appendChild(img);
+        // Remove previous image without touching the info panel
+        mediaEl.querySelectorAll('img.modal-image').forEach(el => el.remove());
+        mediaEl.insertBefore(img, infoPanel);
+        setModalItem(item);
         modal.classList.add('open', 'img-mode');
+        modal.classList.remove('show-info');
         updateNavButtons();
 
         // Show controls initially on touch devices

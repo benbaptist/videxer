@@ -339,7 +339,27 @@ def _create_media_item(media_file: Path, root: Path, subtitle_files: List[Path],
             'modified_time': stat.st_mtime,
             'media_type': _determine_media_type(media_file.suffix),
         }
-        
+
+        if media_file.suffix.lower() in IMAGE_EXTS:
+            try:
+                from PIL import Image as _PILImage
+                from PIL.ExifTags import TAGS as _EXIF_TAGS
+                with _PILImage.open(media_file) as _img:
+                    item['width'], item['height'] = _img.size
+                    exif_data = _img._getexif() if hasattr(_img, '_getexif') else None
+                    if exif_data:
+                        exif = {}
+                        for tag_id, val in exif_data.items():
+                            tag = _EXIF_TAGS.get(tag_id, tag_id)
+                            if tag in ('DateTimeOriginal', 'Make', 'Model', 'FocalLength',
+                                       'ExposureTime', 'FNumber', 'ISOSpeedRatings',
+                                       'Flash', 'GPSInfo'):
+                                exif[tag] = str(val)
+                        if exif:
+                            item['exif'] = exif
+            except Exception:
+                pass
+
         log = get_logger()
 
         # Process thumbnails using the multi-format engine.
@@ -874,6 +894,26 @@ def _create_file_item(file_path: Path, root: Path, generate_thumbnails: bool = F
             "media_type": _determine_media_type(file_path.suffix),
             "full_path": file_path
         }
+
+        if file_path.suffix.lower() in IMAGE_EXTS:
+            try:
+                from PIL import Image as _PILImage
+                from PIL.ExifTags import TAGS as _EXIF_TAGS
+                with _PILImage.open(file_path) as _img:
+                    item['width'], item['height'] = _img.size
+                    exif_data = _img._getexif() if hasattr(_img, '_getexif') else None
+                    if exif_data:
+                        exif = {}
+                        for tag_id, val in exif_data.items():
+                            tag = _EXIF_TAGS.get(tag_id, tag_id)
+                            if tag in ('DateTimeOriginal', 'Make', 'Model', 'FocalLength',
+                                       'ExposureTime', 'FNumber', 'ISOSpeedRatings',
+                                       'Flash', 'GPSInfo'):
+                                exif[tag] = str(val)
+                        if exif:
+                            item['exif'] = exif
+            except Exception:
+                pass
 
         # Generate thumbnail for video files if requested
         if generate_thumbnails and file_path.suffix.lower() in VIDEO_EXTS:
