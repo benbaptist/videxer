@@ -686,6 +686,7 @@ async function fetchJSON(path) {
         immTitle.textContent = title || 'Media';
         immMedia.innerHTML = '';
         immInfo.innerHTML = '';
+        immMedia.classList.toggle('audio-mode', type === 'audio');
         const hasOptimized = !!item.transcoded;
         const hasOriginal = !!item.primary_media;
         let currentQuality = hasOptimized ? 'optimized' : 'original';
@@ -1080,6 +1081,7 @@ async function fetchJSON(path) {
 
       function closeImmersive() {
         document.body.classList.remove('immersive-open');
+        immMedia.classList.remove('audio-mode');
         // Stop playback and release resource
         const media = immMedia.querySelector('video, audio');
         if (media) { try { media.pause(); } catch(e){} media.removeAttribute('src'); media.load && media.load(); }
