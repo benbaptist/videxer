@@ -1125,15 +1125,25 @@ async function fetchJSON(path) {
         modalTitle.textContent = title;
 
         const altText = title.replace(/"/g, '&quot;');
-        const placeholder = item.thumbs && !Array.isArray(item.thumbs) && typeof item.thumbs === 'object'
-          ? item.thumbs.placeholder : null;
+
+        // Find the best already-cached thumbnail to use as placeholder
+        // Prefer the highest quality thumb that the browser has already loaded
+        const bestCachedThumb = (() => {
+          if (!item.thumbs || Array.isArray(item.thumbs) || typeof item.thumbs !== 'object') return null;
+          const candidates = ['large', 'medium', 'small'].map(k => pickThumbUrl(item.thumbs, k)).filter(Boolean);
+          for (const url of candidates) {
+            if (url === src) continue;
+            if (performance.getEntriesByName(url).length > 0) return url;
+          }
+          return item.thumbs.placeholder || null;
+        })();
 
         const img = document.createElement('img');
         img.className = 'modal-image';
         img.alt = altText;
 
-        if (placeholder && src !== placeholder) {
-          img.src = placeholder;
+        if (bestCachedThumb && src !== bestCachedThumb) {
+          img.src = bestCachedThumb;
           img.classList.add('modal-img-loading');
           const full = new Image();
           full.onload = () => {
