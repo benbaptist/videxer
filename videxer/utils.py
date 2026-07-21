@@ -158,16 +158,19 @@ def _group_related_files(directory: Path) -> Dict[str, Dict]:
         
         # Handle media files
         if suffix in ALL_MEDIA_EXTS:
-            if stem not in media_groups:
-                media_groups[stem] = {
+            # If this stem already has a media file, use full filename as key to avoid consolidation
+            if stem in media_groups and 'media' in media_groups[stem]:
+                key = entry.name  # e.g. "song.wav" — different media type, keep separate
+            else:
+                key = stem
+            if key not in media_groups:
+                media_groups[key] = {
                     'media': entry,
                     'subtitles': [],
                     'thumbnails': []
                 }
             else:
-                # In case there are multiple media files with same stem, keep the first
-                if 'media' not in media_groups[stem]:
-                    media_groups[stem]['media'] = entry
+                media_groups[key]['media'] = entry
                     
         # Handle subtitle files  
         elif suffix in SUBTITLE_EXTS:
